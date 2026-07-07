@@ -141,9 +141,7 @@ def group_fills(fills: list[NormalizedFill]) -> list[ComputedTrade]:
     return trades
 
 
-def _group_symbol(
-    account: str, symbol: str, fills: list[NormalizedFill]
-) -> list[ComputedTrade]:
+def _group_symbol(account: str, symbol: str, fills: list[NormalizedFill]) -> list[ComputedTrade]:
     trades: list[ComputedTrade] = []
     builder: _TradeBuilder | None = None
 

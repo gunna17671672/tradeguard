@@ -52,8 +52,7 @@ def _parse_webull_time(raw: str, row_num: int) -> datetime:
         except ValueError:
             continue
     raise ImporterError(
-        f"row {row_num}: cannot parse Filled Time {raw!r} "
-        f"(expected e.g. '07/01/2026 09:31:05 EDT')"
+        f"row {row_num}: cannot parse Filled Time {raw!r} (expected e.g. '07/01/2026 09:31:05 EDT')"
     )
 
 

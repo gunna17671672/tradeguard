@@ -80,8 +80,10 @@ def read_csv_rows(path: Path | str) -> tuple[list[str], list[dict[str, str]]]:
             raise ImporterError(f"{path.name}: file is empty or has no header row")
         header = [h.strip() for h in reader.fieldnames]
         rows = [
-            {(k.strip() if k else k): (v.strip() if isinstance(v, str) else v)
-             for k, v in row.items()}
+            {
+                (k.strip() if k else k): (v.strip() if isinstance(v, str) else v)
+                for k, v in row.items()
+            }
             for row in reader
         ]
     if not rows:

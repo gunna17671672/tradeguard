@@ -68,14 +68,16 @@ class TestGenericImporter:
     def test_custom_mapping_and_timezone(self, tmp_path: Path):
         csv_file = tmp_path / "broker.csv"
         csv_file.write_text(
-            "Ticker,Action,Shares,FillPrice,When\n"
-            "AAPL,BOT,100,190.00,06/01/2026 09:31:05\n",
+            "Ticker,Action,Shares,FillPrice,When\nAAPL,BOT,100,190.00,06/01/2026 09:31:05\n",
             encoding="utf-8",
         )
         importer = GenericCsvImporter(
             mapping=ColumnMapping(
-                symbol="Ticker", side="Action", qty="Shares",
-                price="FillPrice", executed_at="When",
+                symbol="Ticker",
+                side="Action",
+                qty="Shares",
+                price="FillPrice",
+                executed_at="When",
             ),
             datetime_format="%m/%d/%Y %H:%M:%S",
             timezone="America/New_York",
