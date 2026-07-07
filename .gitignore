@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+build/
+dist/
+
+# Data — never commit databases or real broker exports
+*.db
+*.sqlite
+*.sqlite3
+/data/
+
+# Env / secrets
+.env
+.env.*
+
+# Node (M3+)
+node_modules/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
