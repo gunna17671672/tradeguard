@@ -1,0 +1,92 @@
+"""Command-line interface.
+
+    python -m app.cli import fills.csv --broker webull
+    python -m app.cli import fills.csv --broker generic --mapping mapping.json
+
+A generic-importer mapping.json may contain: symbol, side, qty, price,
+executed_at, fees, account_label (CSV column names), plus optional
+datetime_format (strptime) and timezone (IANA name, default UTC).
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from pathlib import Path
+
+from app.db import DEFAULT_DB_PATH, init_db, make_engine, make_session_factory, session_scope
+from app.importers import available_brokers, get_importer
+from app.importers.base import ColumnMapping, ImporterError
+from app.ingest import import_fills
+
+
+def _build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="tradeguard", description="TradeGuard CLI")
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    imp = sub.add_parser("import", help="Import a broker CSV of executions")
+    imp.add_argument("file", type=Path, help="Path to the CSV file")
+    imp.add_argument("--broker", required=True, choices=available_brokers())
+    imp.add_argument(
+        "--mapping",
+        type=Path,
+        default=None,
+        help="JSON column-mapping file (generic importer only)",
+    )
+    imp.add_argument(
+        "--db", type=Path, default=DEFAULT_DB_PATH, help=f"SQLite path (default {DEFAULT_DB_PATH})"
+    )
+    return parser
+
+
+def _importer_kwargs(args: argparse.Namespace) -> dict[str, object]:
+    if args.mapping is None:
+        return {}
+    if args.broker != "generic":
+        raise ImporterError("--mapping is only supported with --broker generic")
+    config = json.loads(args.mapping.read_text(encoding="utf-8"))
+    field_names = {"symbol", "side", "qty", "price", "executed_at", "fees", "account_label"}
+    mapping = ColumnMapping(**{k: v for k, v in config.items() if k in field_names})
+    kwargs: dict[str, object] = {"mapping": mapping}
+    if "datetime_format" in config:
+        kwargs["datetime_format"] = config["datetime_format"]
+    if "timezone" in config:
+        kwargs["timezone"] = config["timezone"]
+    return kwargs
+
+
+def cmd_import(args: argparse.Namespace) -> int:
+    if not args.file.exists():
+        print(f"error: file not found: {args.file}", file=sys.stderr)
+        return 2
+    try:
+        importer = get_importer(args.broker, **_importer_kwargs(args))
+        fills = importer.parse(args.file)
+    except ImporterError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    engine = make_engine(args.db)
+    init_db(engine)
+    factory = make_session_factory(engine)
+    with session_scope(factory) as session:
+        result = import_fills(session, fills, broker=args.broker, filename=args.file.name)
+
+    print(
+        f"Imported {result.inserted} fill(s) from {args.file.name} "
+        f"({result.skipped_duplicates} duplicate(s) skipped); "
+        f"rebuilt {result.trades_rebuilt} trade(s). Batch #{result.batch_id}."
+    )
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _build_parser().parse_args(argv)
+    if args.command == "import":
+        return cmd_import(args)
+    return 2  # pragma: no cover — argparse enforces the subcommand
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
