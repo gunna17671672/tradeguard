@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from app.rules import builtin as _builtin  # noqa: F401 — registers the built-in rules
 from app.rules.engine import (
     AccountSettings,
     Rule,
