@@ -16,7 +16,9 @@ from sqlalchemy.orm import Session
 
 from app.grouping import group_fills
 from app.importers.base import NormalizedFill, fill_dedup_hash
-from app.models import Direction, Execution, ImportBatch, Trade
+from app.models import Direction, Execution, ImportBatch, Trade, Violation
+from app.rules import evaluate_trades
+from app.rules.loader import RulesConfig
 
 
 @dataclass(frozen=True)
@@ -25,12 +27,21 @@ class ImportResult:
     inserted: int
     skipped_duplicates: int
     trades_rebuilt: int
+    violations_recorded: int = 0
 
 
 def import_fills(
-    session: Session, fills: list[NormalizedFill], broker: str, filename: str
+    session: Session,
+    fills: list[NormalizedFill],
+    broker: str,
+    filename: str,
+    rules_config: RulesConfig | None = None,
 ) -> ImportResult:
-    """Persist new fills (skipping duplicates) and rebuild affected trades."""
+    """Persist new fills (skipping duplicates) and rebuild affected trades.
+
+    When a rules config is given, every touched account is re-audited against
+    the discipline rules and the violations persisted.
+    """
     batch = ImportBatch(broker=broker, filename=filename, imported_at=datetime.now(UTC))
     session.add(batch)
     session.flush()
@@ -80,11 +91,17 @@ def import_fills(
     for account, symbol in sorted(touched_keys):
         trades_rebuilt += rebuild_trades(session, account, symbol)
 
+    violations_recorded = 0
+    if rules_config is not None:
+        for account in sorted({account for account, _ in touched_keys}):
+            violations_recorded += audit_account(session, account, rules_config)
+
     return ImportResult(
         batch_id=batch.id,
         inserted=inserted,
         skipped_duplicates=skipped,
         trades_rebuilt=trades_rebuilt,
+        violations_recorded=violations_recorded,
     )
 
 
@@ -164,3 +181,27 @@ def rebuild_trades(session: Session, account_label: str, symbol: str) -> int:
             by_hash[portion.fill.raw_row["dedup_hash"]].trade_id = trade.id
     session.flush()
     return len(computed)
+
+
+def audit_account(session: Session, account_label: str, config: RulesConfig) -> int:
+    """Re-audit every trade of one account, replacing its stored violations."""
+    trades = list(
+        session.scalars(
+            select(Trade)
+            .where(Trade.account_label == account_label)
+            .order_by(Trade.opened_at, Trade.id)
+        )
+    )
+    for trade in trades:
+        trade.violations.clear()
+    session.flush()
+
+    recorded = 0
+    for audit in evaluate_trades(trades, config.rules, config.settings):
+        for v in audit.violations:
+            audit.trade.violations.append(
+                Violation(rule_id=v.rule_id, severity=v.severity, message=v.message)
+            )
+            recorded += 1
+    session.flush()
+    return recorded

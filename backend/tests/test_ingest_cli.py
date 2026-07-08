@@ -16,7 +16,7 @@ from sqlalchemy import select
 
 from app.cli import main
 from app.db import init_db, make_engine, make_session_factory
-from app.models import Direction, Execution, ImportBatch, Trade, TradeStatus
+from app.models import Direction, Execution, ImportBatch, Trade, TradeStatus, Violation
 
 D = Decimal
 
@@ -137,6 +137,83 @@ class TestAnnotationsSurviveRebuild:
             assert trade.planned_stop == D("414.50")
             assert trade.setup_tag == "orb"
             assert trade.notes == "clean breakout"
+
+
+class TestRuleAuditOnImport:
+    """Evaluation runs automatically on import and violations land in the DB."""
+
+    RULES = "account:\n  account_size: '25000'\nrules:\n  max_trades_per_day:\n    n: 2\n"
+    MAPPING = {
+        "symbol": "Ticker",
+        "side": "Action",
+        "qty": "Shares",
+        "price": "FillPrice",
+        "executed_at": "When",
+        "datetime_format": "%m/%d/%Y %H:%M:%S",
+        "timezone": "America/New_York",
+    }
+
+    def setup_files(self, tmp_path: Path) -> list[str]:
+        # Three AAPL round trips in one session day; n=2 allows only the first two.
+        rows = ["Ticker,Action,Shares,FillPrice,When"]
+        for i, (buy_price, sell_price) in enumerate([("100", "101"), ("101", "99"), ("99", "99")]):
+            rows.append(f"AAPL,buy,100,{buy_price},06/01/2026 10:{i * 2:02d}:00")
+            rows.append(f"AAPL,sell,100,{sell_price},06/01/2026 10:{i * 2 + 1:02d}:00")
+        (tmp_path / "fills.csv").write_text("\n".join(rows) + "\n", encoding="utf-8")
+        (tmp_path / "mapping.json").write_text(json.dumps(self.MAPPING), encoding="utf-8")
+        (tmp_path / "rules.yaml").write_text(self.RULES, encoding="utf-8")
+        return [
+            "import",
+            str(tmp_path / "fills.csv"),
+            "--broker",
+            "generic",
+            "--mapping",
+            str(tmp_path / "mapping.json"),
+            "--rules",
+            str(tmp_path / "rules.yaml"),
+            "--db",
+            str(tmp_path / "t.db"),
+        ]
+
+    def test_violations_persisted_and_linked_to_the_right_trade(self, tmp_path: Path, capsys):
+        argv = self.setup_files(tmp_path)
+        assert main(argv) == 0
+        assert "recorded 1 rule violation(s)" in capsys.readouterr().out
+
+        with _session_factory(tmp_path / "t.db")() as session:
+            (violation,) = session.scalars(select(Violation)).all()
+            assert violation.rule_id == "max_trades_per_day"
+            assert violation.severity.value == "violation"
+            third_entry = max(session.scalars(select(Trade)).all(), key=lambda t: t.opened_at)
+            assert violation.trade_id == third_entry.id
+
+    def test_reimport_does_not_duplicate_violations(self, tmp_path: Path, capsys):
+        argv = self.setup_files(tmp_path)
+        assert main(argv) == 0
+        assert main(argv) == 0  # all fills dedup -> nothing re-audited, nothing duplicated
+        assert "recorded 0 rule violation(s)" in capsys.readouterr().out.splitlines()[-1]
+        with _session_factory(tmp_path / "t.db")() as session:
+            (violation,) = session.scalars(select(Violation)).all()
+            assert violation.rule_id == "max_trades_per_day"
+
+    def test_audit_skipped_when_no_rules_file_anywhere(self, tmp_path: Path, capsys, monkeypatch):
+        argv = self.setup_files(tmp_path)
+        (tmp_path / "rules.yaml").unlink()
+        monkeypatch.chdir(tmp_path)  # nothing above a pytest tmp dir holds a rules.yaml
+        assert main([a for a in argv if a not in ("--rules", str(tmp_path / "rules.yaml"))]) == 0
+        out = capsys.readouterr().out
+        assert "no rules.yaml found; skipping" in out
+        assert "audit skipped" in out
+        with _session_factory(tmp_path / "t.db")() as session:
+            assert session.scalars(select(Violation)).all() == []
+
+    def test_invalid_rules_file_fails_loudly(self, tmp_path: Path, capsys):
+        argv = self.setup_files(tmp_path)
+        (tmp_path / "rules.yaml").write_text(
+            "account:\n  account_size: '25000'\nrules:\n  bogus_rule: {}\n", encoding="utf-8"
+        )
+        assert main(argv) == 1
+        assert "unknown rule 'bogus_rule'" in capsys.readouterr().err
 
 
 class TestCliGeneric:

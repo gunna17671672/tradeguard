@@ -6,6 +6,9 @@
 A generic-importer mapping.json may contain: symbol, side, qty, price,
 executed_at, fees, account_label (CSV column names), plus optional
 datetime_format (strptime) and timezone (IANA name, default UTC).
+
+Imports are audited against rules.yaml automatically: pass --rules, or let the
+CLI discover the file by walking up from the current directory.
 """
 
 from __future__ import annotations
@@ -19,6 +22,8 @@ from app.db import DEFAULT_DB_PATH, init_db, make_engine, make_session_factory, 
 from app.importers import available_brokers, get_importer
 from app.importers.base import ColumnMapping, ImporterError
 from app.ingest import import_fills
+from app.rules import RuleConfigError
+from app.rules.loader import RulesConfig, find_rules_file, load_rules_config
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -36,6 +41,12 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     imp.add_argument(
         "--db", type=Path, default=DEFAULT_DB_PATH, help=f"SQLite path (default {DEFAULT_DB_PATH})"
+    )
+    imp.add_argument(
+        "--rules",
+        type=Path,
+        default=None,
+        help="rules.yaml for the discipline audit (default: nearest rules.yaml above the cwd)",
     )
     return parser
 
@@ -56,14 +67,23 @@ def _importer_kwargs(args: argparse.Namespace) -> dict[str, object]:
     return kwargs
 
 
+def _load_rules(args: argparse.Namespace) -> RulesConfig | None:
+    path = args.rules if args.rules is not None else find_rules_file()
+    if path is None:
+        print("note: no rules.yaml found; skipping the discipline audit")
+        return None
+    return load_rules_config(path)
+
+
 def cmd_import(args: argparse.Namespace) -> int:
     if not args.file.exists():
         print(f"error: file not found: {args.file}", file=sys.stderr)
         return 2
     try:
+        rules_config = _load_rules(args)
         importer = get_importer(args.broker, **_importer_kwargs(args))
         fills = importer.parse(args.file)
-    except ImporterError as exc:
+    except (ImporterError, RuleConfigError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
 
@@ -71,12 +91,19 @@ def cmd_import(args: argparse.Namespace) -> int:
     init_db(engine)
     factory = make_session_factory(engine)
     with session_scope(factory) as session:
-        result = import_fills(session, fills, broker=args.broker, filename=args.file.name)
+        result = import_fills(
+            session, fills, broker=args.broker, filename=args.file.name, rules_config=rules_config
+        )
 
+    audit_note = (
+        f"recorded {result.violations_recorded} rule violation(s)"
+        if rules_config is not None
+        else "audit skipped"
+    )
     print(
         f"Imported {result.inserted} fill(s) from {args.file.name} "
         f"({result.skipped_duplicates} duplicate(s) skipped); "
-        f"rebuilt {result.trades_rebuilt} trade(s). Batch #{result.batch_id}."
+        f"rebuilt {result.trades_rebuilt} trade(s); {audit_note}. Batch #{result.batch_id}."
     )
     return 0
 
