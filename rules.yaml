@@ -1,0 +1,49 @@
+# TradeGuard discipline rules.
+#
+# Every trade you import is audited against the rules below; violations show up
+# in reports and (from M3) the Discipline page. Edit params to match YOUR plan,
+# then re-run an import to re-audit.
+#
+# Notes:
+#   - Quote money values ("500", not 500.0) so YAML keeps them exact.
+#   - A rule is enabled by being listed; add `enabled: false` to switch one off
+#     without deleting its params.
+#   - Add `severity: warn` (or info) to keep a rule from counting against your
+#     adherence score; the default severity is `violation`.
+
+account:
+  account_size: "25000"
+  timezone: America/New_York
+  # Dollars that one R represents for you; required if a rule uses R-based
+  # params (e.g. max_daily_loss with `r:` instead of `amount:`).
+  # r_value: "150"
+
+rules:
+  # No more than n round trips entered per session day.
+  max_trades_per_day:
+    n: 6
+
+  # Every trade must have a planned stop recorded, within N minutes of entry.
+  stop_required:
+    within_minutes: 5
+
+  # Planned risk (|entry - stop| x size) may not exceed this % of account_size.
+  max_risk_per_trade:
+    pct_of_account: "1.0"
+
+  # No entries during the opening chop, evaluated in the account timezone.
+  # The window is half-open: an entry at exactly `end` is allowed.
+  blocked_entry_window:
+    start: "09:30"
+    end: "09:35"
+
+  # Re-entering within the cooldown after a loss, at >= multiplier x the losing
+  # trade's size, is flagged as a revenge trade.
+  revenge_trade:
+    cooldown_minutes: 15
+    size_multiplier: "1.5"
+
+  # Once realized PnL for the day is at or below -amount, every later entry is
+  # flagged. Alternatively set `r: "3"` (requires account.r_value).
+  max_daily_loss:
+    amount: "500"
