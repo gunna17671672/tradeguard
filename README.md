@@ -2,7 +2,7 @@
 
 Open-source, self-hosted trading journal with an automated discipline engine. Import your broker executions; TradeGuard reconstructs round-trip trades (FIFO lot matching, partial fills, scale-in/out), computes performance stats, and audits every trade against your own written rules. Local-first — your data never leaves your machine.
 
-**Status:** early development. Milestone 1 (data core: models, grouping engine, Webull + generic CSV importers, CLI) is complete. Rules engine, API, and web UI are coming next — see [SPEC.md](SPEC.md) for the roadmap.
+**Status:** early development. Milestone 1 (data core: models, grouping engine, Webull + generic CSV importers, CLI) and Milestone 2 (discipline engine: six built-in rules configured via [rules.yaml](rules.yaml), automatic audit on import, adherence score and weekly report data) are complete. API and web UI are coming next — see [SPEC.md](SPEC.md) for the roadmap.
 
 ## Quickstart
 
