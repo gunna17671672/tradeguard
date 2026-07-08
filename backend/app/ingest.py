@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 
 from app.grouping import group_fills
 from app.importers.base import NormalizedFill, fill_dedup_hash
-from app.models import Execution, ImportBatch, Trade
+from app.models import Direction, Execution, ImportBatch, Trade
 
 
 @dataclass(frozen=True)
@@ -88,8 +88,16 @@ def import_fills(
     )
 
 
+ANNOTATION_FIELDS = ("planned_stop", "planned_target", "setup_tag", "notes", "stop_set_at")
+
+
 def rebuild_trades(session: Session, account_label: str, symbol: str) -> int:
-    """Delete and regroup all trades for one (account, symbol) from stored fills."""
+    """Delete and regroup all trades for one (account, symbol) from stored fills.
+
+    User annotations survive the rebuild: they are carried over to the
+    recreated trade with the same (opened_at, direction), which is stable
+    unless the new fills rewrite that trade's own history.
+    """
     executions = list(
         session.scalars(
             select(Execution)
@@ -100,9 +108,13 @@ def rebuild_trades(session: Session, account_label: str, symbol: str) -> int:
     for execution in executions:
         execution.trade_id = None
     session.flush()
+    annotations: dict[tuple[datetime, Direction], dict[str, object]] = {}
     for trade in session.scalars(
         select(Trade).where(Trade.account_label == account_label, Trade.symbol == symbol)
     ):
+        saved = {name: getattr(trade, name) for name in ANNOTATION_FIELDS}
+        if any(value is not None for value in saved.values()):
+            annotations[(trade.opened_at, trade.direction)] = saved
         session.delete(trade)
     session.flush()
 
@@ -141,6 +153,8 @@ def rebuild_trades(session: Session, account_label: str, symbol: str) -> int:
             hold_time_seconds=ct.hold_time_seconds,
             fill_count=ct.fill_count,
         )
+        for name, value in annotations.get((ct.opened_at, ct.direction), {}).items():
+            setattr(trade, name, value)
         session.add(trade)
         session.flush()
         # A fill that flips direction belongs to two trades; the single FK

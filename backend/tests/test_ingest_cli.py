@@ -116,6 +116,29 @@ class TestFortyFillFixture:
             assert unlinked == []
 
 
+class TestAnnotationsSurviveRebuild:
+    def test_reimport_preserves_user_annotations(self, fixtures_dir: Path, tmp_path: Path):
+        db = tmp_path / "t.db"
+        csv = str(fixtures_dir / "webull_day_40_fills.csv")
+        assert main(["import", csv, "--broker", "webull", "--db", str(db)]) == 0
+
+        factory = _session_factory(db)
+        with factory() as session:
+            trade = session.scalars(select(Trade).where(Trade.symbol == "MSFT")).one()
+            trade.planned_stop = D("414.50")
+            trade.setup_tag = "orb"
+            trade.notes = "clean breakout"
+            session.commit()
+
+        # Re-importing rebuilds every touched trade; annotations must carry over.
+        assert main(["import", csv, "--broker", "webull", "--db", str(db)]) == 0
+        with factory() as session:
+            trade = session.scalars(select(Trade).where(Trade.symbol == "MSFT")).one()
+            assert trade.planned_stop == D("414.50")
+            assert trade.setup_tag == "orb"
+            assert trade.notes == "clean breakout"
+
+
 class TestCliGeneric:
     def test_generic_import_with_mapping_file(self, tmp_path: Path, capsys):
         csv_file = tmp_path / "custom.csv"
