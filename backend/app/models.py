@@ -1,4 +1,4 @@
-"""SQLAlchemy models for the M1 data core: import batches, executions, trades."""
+"""SQLAlchemy models: import batches, executions, trades, rule violations."""
 
 from __future__ import annotations
 
@@ -33,6 +33,12 @@ class Direction(enum.StrEnum):
 class TradeStatus(enum.StrEnum):
     OPEN = "open"
     CLOSED = "closed"
+
+
+class Severity(enum.StrEnum):
+    INFO = "info"
+    WARN = "warn"
+    VIOLATION = "violation"
 
 
 class ImportBatch(Base):
@@ -102,8 +108,13 @@ class Trade(Base):
     planned_target: Mapped[Decimal | None] = mapped_column(Money, default=None)
     setup_tag: Mapped[str | None] = mapped_column(String(50), default=None)
     notes: Mapped[str | None] = mapped_column(Text, default=None)
+    # When planned_stop was recorded, so stop_required(within_minutes) can be enforced
+    stop_set_at: Mapped[datetime | None] = mapped_column(UTCDateTime, default=None)
 
     executions: Mapped[list[Execution]] = relationship(back_populates="trade")
+    violations: Mapped[list[Violation]] = relationship(
+        back_populates="trade", cascade="all, delete-orphan"
+    )
 
     @property
     def r_multiple(self) -> Decimal | None:
@@ -113,3 +124,17 @@ class Trade(Base):
         if risk_per_share == 0 or self.max_qty == 0:
             return None
         return self.net_pnl / (risk_per_share * self.max_qty)
+
+
+class Violation(Base):
+    """One rule violation found by the discipline engine, linked to a trade."""
+
+    __tablename__ = "violations"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    trade_id: Mapped[int] = mapped_column(ForeignKey("trades.id"), index=True)
+    rule_id: Mapped[str] = mapped_column(String(50), index=True)
+    severity: Mapped[Severity] = mapped_column(Enum(Severity))
+    message: Mapped[str] = mapped_column(Text)
+
+    trade: Mapped[Trade] = relationship(back_populates="violations")
