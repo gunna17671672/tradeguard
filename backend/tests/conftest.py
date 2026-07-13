@@ -2,13 +2,21 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from pathlib import Path
 
 import pytest
+from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session, sessionmaker
 
+from app.db import session_scope
 from app.importers.base import NormalizedFill
+from app.ingest import ImportResult, import_fills
+from app.main import create_app
 from app.models import Direction, Severity, Side, Trade, TradeStatus, Violation
+from app.rules.loader import load_rules_config
 
 SESSION_START = datetime(2026, 6, 1, 13, 30, tzinfo=UTC)  # Mon 2026-06-01 09:30 ET
 
@@ -81,3 +89,68 @@ def make_violation(
 @pytest.fixture
 def fixtures_dir(request: pytest.FixtureRequest):
     return request.path.parent / "fixtures"
+
+
+# Rules used by the API test app: small limits so violations are easy to
+# provoke, and stop_required so any seeded trade without a stop is "dirty".
+API_TEST_RULES = """\
+account:
+  account_size: "25000"
+  timezone: America/New_York
+
+rules:
+  max_trades_per_day:
+    n: 2
+  stop_required:
+    within_minutes: 5
+"""
+
+
+@dataclass
+class ApiHarness:
+    """A TestClient plus direct DB/rules access for seeding and assertions."""
+
+    client: TestClient
+    session_factory: sessionmaker[Session]
+    rules_path: Path
+    db_path: Path
+
+    def seed(
+        self, fills: list[NormalizedFill], broker: str = "test", filename: str = "seed.csv"
+    ) -> ImportResult:
+        """Ingest synthetic fills the same way the CLI/API would, audit included."""
+        config = load_rules_config(self.rules_path)
+        with session_scope(self.session_factory) as session:
+            return import_fills(
+                session, fills, broker=broker, filename=filename, rules_config=config
+            )
+
+
+@pytest.fixture
+def api(tmp_path: Path) -> ApiHarness:
+    rules_path = tmp_path / "rules.yaml"
+    rules_path.write_text(API_TEST_RULES, encoding="utf-8")
+    db_path = tmp_path / "test.db"
+    app = create_app(db_path=db_path, rules_path=rules_path)
+    return ApiHarness(
+        client=TestClient(app),
+        session_factory=app.state.session_factory,
+        rules_path=rules_path,
+        db_path=db_path,
+    )
+
+
+def round_trip(
+    symbol: str = "AAPL",
+    entry_min: int = 0,
+    exit_min: int = 30,
+    qty: str = "100",
+    entry: str = "100",
+    exit_price: str = "101",
+    day_offset_min: int = 0,
+) -> list[NormalizedFill]:
+    """A buy+sell pair that groups into one closed long trade."""
+    return [
+        make_fill("buy", qty, entry, minute=day_offset_min + entry_min, symbol=symbol),
+        make_fill("sell", qty, exit_price, minute=day_offset_min + exit_min, symbol=symbol),
+    ]
