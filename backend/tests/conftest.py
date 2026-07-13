@@ -91,8 +91,9 @@ def fixtures_dir(request: pytest.FixtureRequest):
     return request.path.parent / "fixtures"
 
 
-# Rules used by the API test app: small limits so violations are easy to
-# provoke, and stop_required so any seeded trade without a stop is "dirty".
+# Rules used by the API test app: max_trades_per_day(2) so a third same-day
+# entry is dirty, and max_risk_per_trade (fires only when a stop exists, and
+# 1% of 25k = $250) so PATCHing a stop can add or remove violations.
 API_TEST_RULES = """\
 account:
   account_size: "25000"
@@ -101,8 +102,8 @@ account:
 rules:
   max_trades_per_day:
     n: 2
-  stop_required:
-    within_minutes: 5
+  max_risk_per_trade:
+    pct_of_account: "1.0"
 """
 
 

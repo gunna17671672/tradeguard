@@ -16,6 +16,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api import trades, violations
 from app.db import DEFAULT_DB_PATH, init_db, make_engine, make_session_factory
 from app.rules.loader import find_rules_file
 
@@ -49,6 +50,8 @@ def create_app(
     def health() -> dict[str, str]:
         return {"status": "ok"}
 
+    app.include_router(trades.router)
+    app.include_router(violations.router)
     return app
 
 
