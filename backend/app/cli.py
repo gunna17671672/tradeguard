@@ -19,8 +19,8 @@ import sys
 from pathlib import Path
 
 from app.db import DEFAULT_DB_PATH, init_db, make_engine, make_session_factory, session_scope
-from app.importers import available_brokers, get_importer
-from app.importers.base import ColumnMapping, ImporterError
+from app.importers import available_brokers, get_importer, mapping_kwargs_from_config
+from app.importers.base import ImporterError
 from app.ingest import import_fills
 from app.rules import RuleConfigError
 from app.rules.loader import RulesConfig, find_rules_file, load_rules_config
@@ -57,14 +57,7 @@ def _importer_kwargs(args: argparse.Namespace) -> dict[str, object]:
     if args.broker != "generic":
         raise ImporterError("--mapping is only supported with --broker generic")
     config = json.loads(args.mapping.read_text(encoding="utf-8"))
-    field_names = {"symbol", "side", "qty", "price", "executed_at", "fees", "account_label"}
-    mapping = ColumnMapping(**{k: v for k, v in config.items() if k in field_names})
-    kwargs: dict[str, object] = {"mapping": mapping}
-    if "datetime_format" in config:
-        kwargs["datetime_format"] = config["datetime_format"]
-    if "timezone" in config:
-        kwargs["timezone"] = config["timezone"]
-    return kwargs
+    return mapping_kwargs_from_config(config)
 
 
 def _load_rules(args: argparse.Namespace) -> RulesConfig | None:

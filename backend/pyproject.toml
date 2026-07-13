@@ -15,6 +15,7 @@ dependencies = [
     "pandas>=2.1",
     "uvicorn>=0.27",
     "pyyaml>=6.0",
+    "python-multipart>=0.0.9",  # FastAPI requirement for the multipart import endpoint
 ]
 
 [project.optional-dependencies]

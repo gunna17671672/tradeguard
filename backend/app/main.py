@@ -13,11 +13,13 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
-from app.api import trades, violations
+from app.api import imports, trades, violations
 from app.db import DEFAULT_DB_PATH, init_db, make_engine, make_session_factory
+from app.rules import RuleConfigError
 from app.rules.loader import find_rules_file
 
 DEV_FRONTEND_ORIGINS = ["http://localhost:3000", "http://127.0.0.1:3000"]
@@ -50,6 +52,12 @@ def create_app(
     def health() -> dict[str, str]:
         return {"status": "ok"}
 
+    @app.exception_handler(RuleConfigError)
+    def rule_config_error(request: Request, exc: RuleConfigError) -> JSONResponse:
+        # A broken user-edited rules.yaml is a client-fixable problem, not a 500.
+        return JSONResponse(status_code=400, content={"detail": str(exc)})
+
+    app.include_router(imports.router)
     app.include_router(trades.router)
     app.include_router(violations.router)
     return app

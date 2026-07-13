@@ -105,6 +105,19 @@ class ViolationPage(BaseModel):
     offset: int
 
 
+class ImportResponse(BaseModel):
+    """Batch summary returned by POST /api/imports."""
+
+    batch_id: int
+    broker: str
+    filename: str
+    inserted: int
+    skipped_duplicates: int
+    trades_rebuilt: int
+    violations_recorded: int
+    audited: bool  # False when no rules.yaml is configured
+
+
 class ImportBatchRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
