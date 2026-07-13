@@ -17,7 +17,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api import imports, trades, violations
+from app.api import imports, reports, rules, stats, trades, violations
 from app.db import DEFAULT_DB_PATH, init_db, make_engine, make_session_factory
 from app.rules import RuleConfigError
 from app.rules.loader import find_rules_file
@@ -60,6 +60,9 @@ def create_app(
     app.include_router(imports.router)
     app.include_router(trades.router)
     app.include_router(violations.router)
+    app.include_router(stats.router)
+    app.include_router(rules.router)
+    app.include_router(reports.router)
     return app
 
 

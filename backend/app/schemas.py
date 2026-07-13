@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
-from typing import Annotated
+from typing import Annotated, Any
 
 from pydantic import BaseModel, ConfigDict, Field, PlainSerializer
 
@@ -127,3 +127,76 @@ class ImportBatchRead(BaseModel):
     imported_at: datetime
     inserted_count: int
     skipped_count: int
+
+
+class StatsSummaryRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    closed_trades: int
+    wins: int
+    losses: int
+    scratches: int
+    win_rate_pct: MoneyStr | None
+    profit_factor: MoneyStr | None
+    avg_win: MoneyStr | None
+    avg_loss: MoneyStr | None
+    expectancy: MoneyStr | None
+    gross_pnl: MoneyStr
+    net_pnl: MoneyStr
+    total_fees: MoneyStr
+
+
+class EquityPointRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    trade_id: int
+    closed_at: datetime
+    net_pnl: MoneyStr
+    cumulative_pnl: MoneyStr
+
+
+class CalendarDayRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    day: date
+    net_pnl: MoneyStr
+    trade_count: int
+
+
+class WeeklyReportRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    week_start: date
+    week_end: date
+    closed_trades: int
+    wins: int
+    losses: int
+    gross_pnl: MoneyStr
+    net_pnl: MoneyStr
+    total_fees: MoneyStr
+    adherence_pct: MoneyStr | None
+    violation_count: int
+    violations_by_rule: dict[str, int]
+    streak_days: int
+
+
+class RulesFileRead(BaseModel):
+    """rules.yaml as the Settings editor sees it: raw sections plus metadata."""
+
+    account: dict[str, Any]
+    rules: dict[str, Any]
+    enabled_rule_ids: list[str]
+    available_rules: list[str]
+
+
+class RulesFileWrite(BaseModel):
+    """PUT /api/rules body: the two rules.yaml sections, validated before write."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    account: dict[str, Any]
+    rules: dict[str, Any] = {}
+
+
+class RulesUpdateResponse(RulesFileRead):
+    violations_recorded: int  # from the re-audit that follows a rules change
