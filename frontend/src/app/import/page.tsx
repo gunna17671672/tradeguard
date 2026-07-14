@@ -1,0 +1,189 @@
+"use client";
+
+import { useRef, useState } from "react";
+import Link from "next/link";
+import { api, type ImportResponse } from "@/lib/api";
+import { ErrorNote, PageHeader, Panel } from "@/components/ui";
+
+type Broker = "webull" | "generic";
+
+const MAPPING_PLACEHOLDER = `{
+  "symbol": "Ticker", "side": "Action", "qty": "Shares",
+  "price": "FillPrice", "executed_at": "When",
+  "datetime_format": "%m/%d/%Y %H:%M:%S", "timezone": "America/New_York"
+}`;
+
+export default function ImportPage() {
+  const [broker, setBroker] = useState<Broker>("webull");
+  const [mapping, setMapping] = useState("");
+  const [dragging, setDragging] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<ImportResponse | null>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
+
+  async function send(file: File) {
+    setBusy(true);
+    setError(null);
+    setResult(null);
+    try {
+      const trimmed = mapping.trim();
+      setResult(
+        await api.imports.create(file, broker, broker === "generic" && trimmed ? trimmed : undefined),
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function onDrop(event: React.DragEvent) {
+    event.preventDefault();
+    setDragging(false);
+    const file = event.dataTransfer.files?.[0];
+    if (file) void send(file);
+  }
+
+  return (
+    <>
+      <PageHeader title="Import" sub="idempotent — re-importing is safe" />
+
+      <div className="grid gap-3 lg:grid-cols-[1fr_360px]">
+        <div
+          role="button"
+          tabIndex={0}
+          aria-label="Drop a CSV file or click to browse"
+          onClick={() => fileInput.current?.click()}
+          onKeyDown={(e) => e.key === "Enter" && fileInput.current?.click()}
+          onDragOver={(e) => {
+            e.preventDefault();
+            setDragging(true);
+          }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={onDrop}
+          className={`flex min-h-72 cursor-pointer flex-col items-center justify-center border-2 border-dashed px-6 py-10 text-center transition-colors ${
+            dragging ? "border-accent bg-accent/5" : "border-baseline bg-panel hover:border-muted"
+          }`}
+        >
+          <span className="num text-[40px] leading-none text-baseline">⇣</span>
+          <p className="mt-4 text-[14px] text-ink-2">
+            {busy ? "Uploading…" : "Drop a broker CSV here, or click to browse"}
+          </p>
+          <p className="num mt-2 text-[11px] text-muted">
+            parsed as <span className="text-accent">{broker}</span> · fills dedup on content hash
+          </p>
+          <input
+            ref={fileInput}
+            type="file"
+            accept=".csv,text/csv"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) void send(file);
+              e.target.value = "";
+            }}
+          />
+        </div>
+
+        <div className="flex flex-col gap-3">
+          <Panel title="broker">
+            <div className="flex flex-col gap-px p-2">
+              {(["webull", "generic"] as const).map((b) => (
+                <label
+                  key={b}
+                  className={`flex cursor-pointer items-baseline gap-3 px-3 py-2.5 transition-colors ${
+                    broker === b ? "bg-panel-2 text-ink" : "text-ink-2 hover:bg-panel-2"
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="broker"
+                    checked={broker === b}
+                    onChange={() => setBroker(b)}
+                    className="accent-[#3987e5]"
+                  />
+                  <span className="num text-[13px] font-medium">{b}</span>
+                  <span className="text-[11px] text-muted">
+                    {b === "webull" ? "orders export (US stocks)" : "any CSV + column mapping"}
+                  </span>
+                </label>
+              ))}
+            </div>
+          </Panel>
+
+          {broker === "generic" ? (
+            <Panel title="column mapping · optional json">
+              <div className="p-3">
+                <textarea
+                  className="num h-40 w-full resize-y border border-hairline bg-panel-2 p-2 text-[11px] leading-relaxed text-ink placeholder:text-muted focus:border-accent focus:outline-none"
+                  value={mapping}
+                  onChange={(e) => setMapping(e.target.value)}
+                  placeholder={MAPPING_PLACEHOLDER}
+                  spellCheck={false}
+                />
+                <p className="mt-2 text-[11px] leading-relaxed text-muted">
+                  Leave empty if your CSV already uses <span className="num">symbol, side, qty,
+                  price, executed_at</span> (ISO-8601 UTC).
+                </p>
+              </div>
+            </Panel>
+          ) : null}
+        </div>
+      </div>
+
+      {error ? (
+        <div className="mt-3">
+          <ErrorNote message={error} />
+        </div>
+      ) : null}
+
+      {result ? (
+        <div className="mt-3">
+          <Panel title={`batch #${result.batch_id} · ${result.filename}`}>
+            <div className="grid grid-cols-2 gap-4 px-4 py-4 md:grid-cols-4">
+              <div>
+                <span className="label block">fills inserted</span>
+                <span className="num mt-1 block text-[22px] text-gain">{result.inserted}</span>
+              </div>
+              <div>
+                <span className="label block">duplicates skipped</span>
+                <span className="num mt-1 block text-[22px] text-ink-2">
+                  {result.skipped_duplicates}
+                </span>
+              </div>
+              <div>
+                <span className="label block">trades rebuilt</span>
+                <span className="num mt-1 block text-[22px]">{result.trades_rebuilt}</span>
+              </div>
+              <div>
+                <span className="label block">violations</span>
+                <span
+                  className={`num mt-1 block text-[22px] ${
+                    !result.audited
+                      ? "text-muted"
+                      : result.violations_recorded > 0
+                        ? "text-loss"
+                        : "text-gain"
+                  }`}
+                >
+                  {result.audited ? result.violations_recorded : "not audited"}
+                </span>
+              </div>
+            </div>
+            <div className="border-t border-hairline px-4 py-3">
+              <Link href="/trades" className="label text-accent hover:underline">
+                view trades →
+              </Link>
+              {result.violations_recorded > 0 ? (
+                <Link href="/discipline" className="label ml-6 text-loss hover:underline">
+                  review violations →
+                </Link>
+              ) : null}
+            </div>
+          </Panel>
+        </div>
+      ) : null}
+    </>
+  );
+}
