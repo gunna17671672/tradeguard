@@ -93,9 +93,14 @@ def cmd_import(args: argparse.Namespace) -> int:
         if rules_config is not None
         else "audit skipped"
     )
+    unfilled_note = (
+        f", {importer.skipped_unfilled} unfilled order row(s) skipped"
+        if importer.skipped_unfilled
+        else ""
+    )
     print(
         f"Imported {result.inserted} fill(s) from {args.file.name} "
-        f"({result.skipped_duplicates} duplicate(s) skipped); "
+        f"({result.skipped_duplicates} duplicate(s) skipped{unfilled_note}); "
         f"rebuilt {result.trades_rebuilt} trade(s); {audit_note}. Batch #{result.batch_id}."
     )
     return 0

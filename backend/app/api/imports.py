@@ -60,7 +60,8 @@ def create_import(
             shutil.copyfileobj(file.file, out)
         try:
             kwargs = mapping_kwargs_from_config(mapping_config) if mapping_config else {}
-            fills = get_importer(broker, **kwargs).parse(target)
+            importer = get_importer(broker, **kwargs)
+            fills = importer.parse(target)
         except ImporterError as exc:
             raise HTTPException(422, detail=str(exc)) from exc
 
@@ -73,6 +74,7 @@ def create_import(
         filename=filename,
         inserted=result.inserted,
         skipped_duplicates=result.skipped_duplicates,
+        skipped_unfilled=importer.skipped_unfilled,
         trades_rebuilt=result.trades_rebuilt,
         violations_recorded=result.violations_recorded,
         audited=rules_config is not None,

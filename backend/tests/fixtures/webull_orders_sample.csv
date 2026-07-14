@@ -1,0 +1,8 @@
+Symbol,Side,Type,Qty,Filled Qty,Limit Price,Stop Price,Avg Fill Price,Status,Update Time,commission,fee,Futures BP,Include Extended Hours,undefined,Order ID
+AAPL,Buy,LMT,100,100,190.00,,190.00,Filled,06/01/2026 09:31:05 EDT,0.00,0.02,,No,,SYN0001
+AAPL,Sell,MKT,100,100,,,191.50,Filled,06/01/2026 09:45:10 EDT,,0.03,,No,,SYN0002
+TSLA,Buy,LMT,80,50,240.10,,240.10,Partial Filled,06/01/2026 10:02:30 EDT,0.00,0.01,,No,,SYN0003
+TSLA,Buy,LMT,50,0,239.00,,,Cancelled,06/01/2026 10:05:00 EDT,,,,No,,SYN0004
+MSFT,Buy,STP,25,0,,470.00,,Pending,06/01/2026 10:10:00 EDT,,,,No,,SYN0005
+NVDA,Buy,LMT,10,0,120.00,,,Rejected,06/01/2026 10:12:00 EDT,,,,No,,SYN0006
+TSLA,Sell,MKT,50,50,,,238.90,Filled,06/01/2026 10:31:12 EDT,0.00,0.01,,No,,SYN0007

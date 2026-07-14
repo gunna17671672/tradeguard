@@ -113,6 +113,7 @@ class ImportResponse(BaseModel):
     filename: str
     inserted: int
     skipped_duplicates: int
+    skipped_unfilled: int  # source rows for orders that never (fully) executed
     trades_rebuilt: int
     violations_recorded: int
     audited: bool  # False when no rules.yaml is configured

@@ -176,6 +176,7 @@ export interface ImportResponse {
   filename: string;
   inserted: number;
   skipped_duplicates: number;
+  skipped_unfilled: number;
   trades_rebuilt: number;
   violations_recorded: number;
   audited: boolean;

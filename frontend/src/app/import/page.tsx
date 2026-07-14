@@ -172,6 +172,13 @@ export default function ImportPage() {
               </div>
             </div>
             <div className="border-t border-hairline px-4 py-3">
+              {result.skipped_unfilled > 0 ? (
+                <p className="num mb-2 text-[11px] text-muted">
+                  {result.skipped_unfilled} unfilled order row
+                  {result.skipped_unfilled === 1 ? "" : "s"} (cancelled / pending / rejected)
+                  skipped
+                </p>
+              ) : null}
               <Link href="/trades" className="label text-accent hover:underline">
                 view trades →
               </Link>

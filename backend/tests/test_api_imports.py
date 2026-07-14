@@ -28,9 +28,20 @@ def test_webull_upload(api: ApiHarness, fixtures_dir: Path):
     body = response.json()
     assert body["inserted"] == 4
     assert body["skipped_duplicates"] == 0
+    assert body["skipped_unfilled"] == 1  # the cancelled order row
     assert body["trades_rebuilt"] == 2
     assert body["audited"] is True
     assert body["filename"] == "webull_sample.csv"
+    assert api.client.get("/api/trades").json()["total"] == 2
+
+
+def test_webull_order_history_upload(api: ApiHarness, fixtures_dir: Path):
+    response = upload(api, fixtures_dir / "webull_orders_sample.csv", "webull")
+    assert response.status_code == 201
+    body = response.json()
+    assert body["inserted"] == 4
+    assert body["skipped_unfilled"] == 3  # cancelled + pending + rejected
+    assert body["trades_rebuilt"] == 2
     assert api.client.get("/api/trades").json()["total"] == 2
 
 

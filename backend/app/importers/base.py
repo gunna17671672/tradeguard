@@ -124,6 +124,10 @@ def parse_side(raw: str, row_num: int) -> Side:
 class BaseImporter(ABC):
     broker: str
 
+    # Rows parse() skipped because the order never (fully) executed —
+    # cancelled/pending/rejected status or zero filled quantity.
+    skipped_unfilled: int = 0
+
     @abstractmethod
     def parse(self, path: Path | str) -> list[NormalizedFill]:
         """Parse a broker export file into normalized fills. Pure; no DB access."""

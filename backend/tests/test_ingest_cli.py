@@ -95,6 +95,14 @@ class TestFortyFillFixture:
             assert tsla_short.direction is Direction.SHORT
             assert tsla_short.gross_pnl == D("250.00")
 
+    def test_unfilled_order_rows_reported(self, fixtures_dir: Path, tmp_path: Path, capsys):
+        csv = str(fixtures_dir / "webull_orders_sample.csv")
+        db = str(tmp_path / "t.db")
+        assert main(["import", csv, "--broker", "webull", "--db", db]) == 0
+        out = capsys.readouterr().out
+        assert "Imported 4 fill(s)" in out
+        assert "3 unfilled order row(s) skipped" in out
+
     def test_reimport_is_idempotent(self, fixtures_dir: Path, tmp_path: Path, capsys):
         db = tmp_path / "t.db"
         assert self._import(fixtures_dir, db) == 0
@@ -283,4 +291,4 @@ class TestCliErrors:
         rc = main(["import", str(f), "--broker", "webull", "--db", str(tmp_path / "t.db")])
         assert rc == 1
         err = capsys.readouterr().err
-        assert "missing expected column" in err
+        assert "columns do not match a known Webull export" in err

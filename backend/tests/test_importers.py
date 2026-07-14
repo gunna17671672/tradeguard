@@ -19,8 +19,10 @@ D = Decimal
 
 class TestWebullImporter:
     def test_parses_filled_rows_only(self, fixtures_dir: Path):
-        fills = WebullImporter().parse(fixtures_dir / "webull_sample.csv")
+        importer = WebullImporter()
+        fills = importer.parse(fixtures_dir / "webull_sample.csv")
         assert len(fills) == 4  # cancelled row skipped
+        assert importer.skipped_unfilled == 1
         assert all(f.broker == "webull" for f in fills)
 
     def test_values_are_decimal_and_utc(self, fixtures_dir: Path):
@@ -40,6 +42,8 @@ class TestWebullImporter:
         msg = str(exc_info.value)
         assert "Symbol" in msg  # expected columns listed
         assert "Ticker" in msg  # found columns listed
+        assert "Avg Price" in msg  # fills variant listed
+        assert "Avg Fill Price" in msg  # order-history variant listed
 
     def test_empty_file_fails_loudly(self, tmp_path: Path):
         empty = tmp_path / "empty.csv"
@@ -56,6 +60,59 @@ class TestWebullImporter:
         )
         with pytest.raises(ImporterError, match="Filled Time"):
             WebullImporter().parse(bad)
+
+
+class TestWebullOrdersVariant:
+    """Order-history export: rows are orders, not fills; only filled ones import."""
+
+    def test_imports_filled_and_partial_rows_counting_skips(self, fixtures_dir: Path):
+        importer = WebullImporter()
+        fills = importer.parse(fixtures_dir / "webull_orders_sample.csv")
+        assert len(fills) == 4
+        assert importer.skipped_unfilled == 3  # cancelled + pending + rejected
+        assert [f.symbol for f in fills] == ["AAPL", "AAPL", "TSLA", "TSLA"]
+
+    def test_partial_fill_uses_filled_qty_not_order_qty(self, fixtures_dir: Path):
+        fills = WebullImporter().parse(fixtures_dir / "webull_orders_sample.csv")
+        partial = fills[2]  # TSLA buy: Qty 80, Filled Qty 50, Partial Filled
+        assert partial.qty == D("50")
+        assert partial.price == D("240.10")
+        assert partial.side is Side.BUY
+
+    def test_fees_sum_commission_and_fee_columns(self, fixtures_dir: Path):
+        fills = WebullImporter().parse(fixtures_dir / "webull_orders_sample.csv")
+        assert fills[0].fees == D("0.02")  # commission 0.00 + fee 0.02
+        assert fills[1].fees == D("0.03")  # empty commission cell counts as 0
+
+    def test_update_time_parsed_as_eastern(self, fixtures_dir: Path):
+        first = WebullImporter().parse(fixtures_dir / "webull_orders_sample.csv")[0]
+        # 09:31:05 EDT == 13:31:05 UTC
+        assert first.executed_at.astimezone(UTC) == datetime(2026, 6, 1, 13, 31, 5, tzinfo=UTC)
+
+    def test_undefined_column_is_kept_harmlessly(self, fixtures_dir: Path):
+        first = WebullImporter().parse(fixtures_dir / "webull_orders_sample.csv")[0]
+        assert first.raw_row["undefined"] == ""
+        assert first.raw_row["Order ID"] == "SYN0001"
+
+    def test_bad_update_time_names_the_column(self, tmp_path: Path):
+        bad = tmp_path / "bad_time.csv"
+        bad.write_text(
+            "Symbol,Side,Qty,Filled Qty,Avg Fill Price,Status,Update Time\n"
+            "AAPL,Buy,100,100,190.00,Filled,not-a-time\n",
+            encoding="utf-8",
+        )
+        with pytest.raises(ImporterError, match="Update Time"):
+            WebullImporter().parse(bad)
+
+    def test_all_rows_unfilled_fails_loudly(self, tmp_path: Path):
+        unfilled = tmp_path / "unfilled.csv"
+        unfilled.write_text(
+            "Symbol,Side,Qty,Filled Qty,Avg Fill Price,Status,Update Time\n"
+            "AAPL,Buy,100,0,,Cancelled,06/01/2026 09:31:05 EDT\n",
+            encoding="utf-8",
+        )
+        with pytest.raises(ImporterError, match="no filled executions"):
+            WebullImporter().parse(unfilled)
 
 
 class TestGenericImporter:
