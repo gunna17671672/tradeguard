@@ -1,0 +1,6 @@
+Symbol,Side,Type,Qty,Filled Qty,Limit Price,Stop Price,Avg Fill Price,Status,Update Time,commission,fee,Futures BP,Include Extended Hours,undefined,Order ID
+AAPL,Buy,Market,100,100,,,190.00,Filled,2026-07-14 09:31:05,0.00,0.02,,false,,SYN1001
+AAPL,Sell,Limit,100,100,192.00,,191.50,Filled,2026-07-14 14:36:05,,0.03,,false,,SYN1002
+MSFT,Buy,Market,50,50,,,415.00,Filled,2026-01-15 10:00:00,0.00,0.01,,false,,SYN1003
+MSFT,Sell,Market,50,50,,,417.00,Filled,2026-01-15 15:45:00,0.00,0.01,,false,,SYN1004
+TSLA,Buy,Limit,40,0,240.00,,,Cancelled,2026-07-14 10:05:00,,,,false,,SYN1005

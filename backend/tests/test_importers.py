@@ -115,6 +115,59 @@ class TestWebullOrdersVariant:
             WebullImporter().parse(unfilled)
 
 
+class TestWebullTimestampFormats:
+    """Webull renders either 'MM/DD/YYYY HH:MM:SS EDT' or a zone-less
+    'YYYY-MM-DD HH:MM:SS'; both are wall-clock times in the importer's
+    `timezone` parameter (default America/New_York), converted to UTC."""
+
+    def _one_row(self, tmp_path: Path, update_time: str) -> Path:
+        path = tmp_path / "one.csv"
+        path.write_text(
+            "Symbol,Side,Qty,Filled Qty,Avg Fill Price,Status,Update Time\n"
+            f"AAPL,Buy,100,100,190.00,Filled,{update_time}\n",
+            encoding="utf-8",
+        )
+        return path
+
+    @pytest.mark.parametrize(
+        ("raw", "expected_utc"),
+        [
+            # suffixed style: summer is EDT (UTC-4), winter is EST (UTC-5)
+            ("07/14/2026 09:31:05 EDT", datetime(2026, 7, 14, 13, 31, 5, tzinfo=UTC)),
+            ("01/15/2026 09:31:05 EST", datetime(2026, 1, 15, 14, 31, 5, tzinfo=UTC)),
+            # zone-less style: assumed Eastern, DST resolved from the date
+            ("2026-07-14 14:36:05", datetime(2026, 7, 14, 18, 36, 5, tzinfo=UTC)),
+            ("2026-01-15 14:36:05", datetime(2026, 1, 15, 19, 36, 5, tzinfo=UTC)),
+        ],
+    )
+    def test_both_formats_across_dst(self, tmp_path: Path, raw: str, expected_utc: datetime):
+        (fill,) = WebullImporter().parse(self._one_row(tmp_path, raw))
+        assert fill.executed_at.astimezone(UTC) == expected_utc
+
+    def test_timezone_parameter_overrides_the_eastern_assumption(self, tmp_path: Path):
+        (fill,) = WebullImporter(timezone="UTC").parse(
+            self._one_row(tmp_path, "2026-07-14 14:36:05")
+        )
+        assert fill.executed_at.astimezone(UTC) == datetime(2026, 7, 14, 14, 36, 5, tzinfo=UTC)
+
+    def test_iso_times_fixture_imports_both_seasons(self, fixtures_dir: Path):
+        importer = WebullImporter()
+        fills = importer.parse(fixtures_dir / "webull_orders_iso_times.csv")
+        assert len(fills) == 4
+        assert importer.skipped_unfilled == 1  # cancelled TSLA order
+        # AAPL buy on a July day (EDT), MSFT buy on a January day (EST)
+        assert fills[0].executed_at.astimezone(UTC) == datetime(2026, 7, 14, 13, 31, 5, tzinfo=UTC)
+        assert fills[2].executed_at.astimezone(UTC) == datetime(2026, 1, 15, 15, 0, 0, tzinfo=UTC)
+
+    def test_unparseable_time_error_names_value_and_both_styles(self, tmp_path: Path):
+        with pytest.raises(ImporterError) as exc_info:
+            WebullImporter().parse(self._one_row(tmp_path, "14-07-2026 14:36"))
+        msg = str(exc_info.value)
+        assert "'14-07-2026 14:36'" in msg  # offending value
+        assert "Update Time" in msg  # offending column
+        assert "07/01/2026 09:31:05 EDT" in msg and "2026-07-14 14:36:05" in msg
+
+
 class TestGenericImporter:
     def test_default_mapping(self, fixtures_dir: Path):
         fills = GenericCsvImporter().parse(fixtures_dir / "generic_sample.csv")
