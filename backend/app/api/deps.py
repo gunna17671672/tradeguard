@@ -40,8 +40,8 @@ def require_rules_config(request: Request) -> RulesConfig:
     if config is None:
         raise HTTPException(
             status_code=409,
-            detail="No rules.yaml configured; create one at the repo root "
-            "or point TRADEGUARD_RULES at it.",
+            detail="No rules.yaml configured; copy rules.example.yaml to "
+            "rules.yaml at the repo root or point TRADEGUARD_RULES at it.",
         )
     return config
 

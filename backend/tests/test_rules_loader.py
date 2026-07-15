@@ -10,7 +10,7 @@ import pytest
 from app.models import Severity
 from app.rules.builtin import MaxTradesPerDay
 from app.rules.engine import RuleConfigError, available_rules
-from app.rules.loader import find_rules_file, load_rules_config
+from app.rules.loader import bootstrap_rules_file, find_rules_file, load_rules_config
 
 VALID = """
 account:
@@ -119,13 +119,38 @@ class TestFindRulesFile:
         assert find_rules_file(tmp_path) is None
 
 
-class TestShippedDefaultConfig:
-    def test_repo_rules_yaml_loads_cleanly(self):
-        """The repo rules.yaml doubles as the live dev config — the Settings UI
-        rewrites it (reordering rules, changing params) — so assert it stays
-        loadable and well-formed rather than pinning exact contents."""
-        repo_rules = Path(__file__).resolve().parents[2] / "rules.yaml"
-        config = load_rules_config(repo_rules)
-        assert config.settings.account_size > 0
-        assert config.enabled_rule_ids()  # at least one rule enabled
-        assert set(config.enabled_rule_ids()) <= set(available_rules())
+class TestShippedTemplate:
+    def test_example_template_loads_and_enables_all_rules(self):
+        """rules.example.yaml is the checked-in template (the live rules.yaml
+        is gitignored and user-owned), so its exact contents CAN be pinned."""
+        example = Path(__file__).resolve().parents[2] / "rules.example.yaml"
+        config = load_rules_config(example)
+        assert config.settings.account_size == Decimal("25000")
+        assert set(config.enabled_rule_ids()) == set(available_rules())
+
+
+class TestBootstrapRulesFile:
+    def test_copies_example_into_place(self, tmp_path: Path):
+        (tmp_path / "rules.example.yaml").write_text(VALID, encoding="utf-8")
+        created = bootstrap_rules_file(tmp_path)
+        assert created == tmp_path / "rules.yaml"
+        assert load_rules_config(created).enabled_rule_ids() == [
+            "max_trades_per_day",
+            "stop_required",
+        ]
+
+    def test_finds_example_in_parent_directory(self, tmp_path: Path):
+        (tmp_path / "rules.example.yaml").write_text(VALID, encoding="utf-8")
+        nested = tmp_path / "backend" / "deep"
+        nested.mkdir(parents=True)
+        assert bootstrap_rules_file(nested) == tmp_path / "rules.yaml"
+
+    def test_never_overwrites_existing_rules_yaml(self, tmp_path: Path):
+        (tmp_path / "rules.example.yaml").write_text(VALID, encoding="utf-8")
+        live = write_yaml(tmp_path, "account:\n  account_size: '1889.94'\nrules: {}\n")
+        assert bootstrap_rules_file(tmp_path) == live
+        assert load_rules_config(live).settings.account_size == Decimal("1889.94")
+
+    def test_none_when_no_example_anywhere(self, tmp_path: Path):
+        # tmp_path's parents hold no rules.example.yaml (pytest tmp roots are isolated)
+        assert bootstrap_rules_file(tmp_path) is None

@@ -23,6 +23,7 @@ Every problem raises RuleConfigError with a message naming the offending key.
 
 from __future__ import annotations
 
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -103,11 +104,34 @@ def _parse_severity(value: object, rule_id: str, source: str) -> Severity | None
         ) from None
 
 
+RULES_FILENAME = "rules.yaml"
+EXAMPLE_FILENAME = "rules.example.yaml"
+
+
 def find_rules_file(start: Path | None = None) -> Path | None:
     """Walk from `start` (default cwd) upward looking for rules.yaml."""
     origin = (start or Path.cwd()).resolve()
     for directory in (origin, *origin.parents):
-        candidate = directory / "rules.yaml"
+        candidate = directory / RULES_FILENAME
         if candidate.is_file():
             return candidate
+    return None
+
+
+def bootstrap_rules_file(start: Path | None = None) -> Path | None:
+    """Create rules.yaml from the shipped rules.example.yaml template.
+
+    Walks from `start` (default cwd) upward looking for rules.example.yaml —
+    the same walk find_rules_file does — and copies it to rules.yaml alongside.
+    Returns the live file's path, or None when no template exists either.
+    An already-existing rules.yaml is never overwritten.
+    """
+    origin = (start or Path.cwd()).resolve()
+    for directory in (origin, *origin.parents):
+        example = directory / EXAMPLE_FILENAME
+        if example.is_file():
+            target = directory / RULES_FILENAME
+            if not target.exists():
+                shutil.copyfile(example, target)
+            return target
     return None

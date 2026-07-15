@@ -18,6 +18,9 @@ dist/
 .env
 .env.*
 
+# Live rules config — personal (real account size); template is rules.example.yaml
+/rules.yaml
+
 # Node (M3+)
 node_modules/
 

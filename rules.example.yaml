@@ -1,7 +1,12 @@
-# TradeGuard discipline rules.
+# TradeGuard discipline rules — template.
 #
-# Every trade you import is audited against the rules below; violations show up
-# in reports and (from M3) the Discipline page. Edit params to match YOUR plan,
+# This file is the checked-in template. Your live config is `rules.yaml`
+# (gitignored: it holds your real account size, and saving from the Settings
+# page rewrites it). The app copies this template to rules.yaml on first run;
+# you can also copy it by hand.
+#
+# Every trade you import is audited against the rules in rules.yaml; violations
+# show up in reports and the Discipline page. Edit params to match YOUR plan,
 # then re-run an import to re-audit.
 #
 # Notes:

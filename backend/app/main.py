@@ -20,14 +20,17 @@ from fastapi.responses import JSONResponse
 from app.api import imports, reports, rules, stats, trades, violations
 from app.db import DEFAULT_DB_PATH, init_db, make_engine, make_session_factory
 from app.rules import RuleConfigError
-from app.rules.loader import find_rules_file
+from app.rules.loader import bootstrap_rules_file, find_rules_file
 
 DEV_FRONTEND_ORIGINS = ["http://localhost:3000", "http://127.0.0.1:3000"]
 
 
 def _default_rules_path() -> Path | None:
     env = os.environ.get("TRADEGUARD_RULES")
-    return Path(env) if env else find_rules_file()
+    if env:
+        return Path(env)
+    # First run: no live rules.yaml yet — create it from the shipped template.
+    return find_rules_file() or bootstrap_rules_file()
 
 
 def create_app(

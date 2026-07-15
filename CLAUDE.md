@@ -20,7 +20,7 @@ Self-hosted trading journal + automated discipline engine. The full product spec
 ## Git
 - Atomic commits per logical step, imperative messages ("Add FIFO lot matching")
 - Run tests before every commit; never commit failing code
-- Never commit: real broker exports, `.env`, `*.db` / SQLite files, `.venv`, `node_modules`
+- Never commit: real broker exports, `.env`, `*.db` / SQLite files, `.venv`, `node_modules`, `rules.yaml` (the user's live config with their real account size — the committed template is `rules.example.yaml`)
 
 ## Hard rules
 - No dependencies beyond the SPEC.md stack without asking first
