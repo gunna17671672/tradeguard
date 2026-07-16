@@ -13,6 +13,14 @@ from app.models import AssetType, Direction, Severity, Side, TradeStatus
 MoneyStr = Annotated[Decimal, PlainSerializer(str, return_type=str)]
 
 
+class HealthRead(BaseModel):
+    """GET /api/health: liveness plus the resolved runtime configuration."""
+
+    status: str
+    db_path: str  # fully resolved — independent of the launch directory
+    rules_path: str | None
+
+
 class ExecutionRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

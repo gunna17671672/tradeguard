@@ -18,7 +18,7 @@ import json
 import sys
 from pathlib import Path
 
-from app.db import DEFAULT_DB_PATH, init_db, make_engine, make_session_factory, session_scope
+from app.db import default_db_path, init_db, make_engine, make_session_factory, session_scope
 from app.importers import available_brokers, get_importer, mapping_kwargs_from_config
 from app.importers.base import ImporterError
 from app.ingest import import_fills
@@ -39,8 +39,9 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="JSON column-mapping file (generic importer only)",
     )
+    default_db = default_db_path()
     imp.add_argument(
-        "--db", type=Path, default=DEFAULT_DB_PATH, help=f"SQLite path (default {DEFAULT_DB_PATH})"
+        "--db", type=Path, default=default_db, help=f"SQLite path (default {default_db})"
     )
     imp.add_argument(
         "--rules",

@@ -18,7 +18,21 @@ from sqlalchemy.engine import Dialect, Engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.types import DateTime, TypeDecorator
 
-DEFAULT_DB_PATH = Path(os.environ.get("TRADEGUARD_DB", "tradeguard.db"))
+# Anchor the default DB next to the backend package so every launch directory
+# (uvicorn from backend/, the CLI from the repo root, ...) hits the same file.
+_BACKEND_DIR = Path(__file__).resolve().parent.parent
+
+
+def default_db_path() -> Path:
+    """Fully resolved default SQLite path, independent of the launch directory.
+
+    TRADEGUARD_DB wins when set (a relative value resolves against the cwd,
+    since it was given explicitly); otherwise backend/tradeguard.db.
+    """
+    env = os.environ.get("TRADEGUARD_DB")
+    if env:
+        return Path(env).resolve()
+    return _BACKEND_DIR / "tradeguard.db"
 
 
 class Money(TypeDecorator[Decimal]):
@@ -55,8 +69,8 @@ class UTCDateTime(TypeDecorator[datetime]):
         return None if value is None else value.replace(tzinfo=UTC)
 
 
-def make_engine(db_path: Path | str = DEFAULT_DB_PATH) -> Engine:
-    return create_engine(f"sqlite:///{db_path}")
+def make_engine(db_path: Path | str | None = None) -> Engine:
+    return create_engine(f"sqlite:///{db_path if db_path is not None else default_db_path()}")
 
 
 def make_session_factory(engine: Engine) -> sessionmaker[Session]:
