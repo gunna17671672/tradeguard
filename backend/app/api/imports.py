@@ -1,4 +1,4 @@
-"""Imports API: multipart CSV upload -> parse, ingest, audit, batch summary."""
+"""Imports API: CSV upload -> parse, ingest, audit; batch listing and delete."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ from typing import Annotated
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import APIRouter, Form, HTTPException, UploadFile
+from sqlalchemy import select
 
 from app.api.deps import RulesConfigDep, SessionDep
 from app.importers import (
@@ -18,8 +19,9 @@ from app.importers import (
     mapping_kwargs_from_config,
 )
 from app.importers.base import ImporterError
-from app.ingest import import_fills
-from app.schemas import ImportResponse
+from app.ingest import delete_import_batch, import_fills
+from app.models import ImportBatch
+from app.schemas import ImportBatchRead, ImportDeleteResponse, ImportResponse
 
 router = APIRouter(prefix="/api/imports", tags=["imports"])
 
@@ -105,6 +107,34 @@ def create_import(
         inserted=result.inserted,
         skipped_duplicates=result.skipped_duplicates,
         skipped_unfilled=importer.skipped_unfilled,
+        trades_rebuilt=result.trades_rebuilt,
+        violations_recorded=result.violations_recorded,
+        audited=rules_config is not None,
+    )
+
+
+@router.get("")
+def list_imports(session: SessionDep) -> list[ImportBatchRead]:
+    """All import batches, newest first."""
+    batches = session.scalars(
+        select(ImportBatch).order_by(ImportBatch.imported_at.desc(), ImportBatch.id.desc())
+    )
+    return [ImportBatchRead.model_validate(batch) for batch in batches]
+
+
+@router.delete("/{batch_id}")
+def delete_import(
+    batch_id: int, session: SessionDep, rules_config: RulesConfigDep
+) -> ImportDeleteResponse:
+    """Delete a batch and its fills; affected trades regroup and re-audit."""
+    result = delete_import_batch(session, batch_id, rules_config=rules_config)
+    if result is None:
+        raise HTTPException(404, detail=f"import batch {batch_id} not found")
+    return ImportDeleteResponse(
+        batch_id=result.batch_id,
+        broker=result.broker,
+        filename=result.filename,
+        fills_deleted=result.fills_deleted,
         trades_rebuilt=result.trades_rebuilt,
         violations_recorded=result.violations_recorded,
         audited=rules_config is not None,

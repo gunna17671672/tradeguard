@@ -130,6 +130,18 @@ class ImportBatchRead(BaseModel):
     skipped_count: int
 
 
+class ImportDeleteResponse(BaseModel):
+    """Summary returned by DELETE /api/imports/{batch_id}: what was reverted."""
+
+    batch_id: int
+    broker: str
+    filename: str
+    fills_deleted: int
+    trades_rebuilt: int
+    violations_recorded: int
+    audited: bool  # False when no rules.yaml is configured
+
+
 class StatsSummaryRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

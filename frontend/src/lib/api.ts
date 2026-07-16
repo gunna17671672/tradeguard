@@ -182,6 +182,25 @@ export interface ImportResponse {
   audited: boolean;
 }
 
+export interface ImportBatch {
+  id: number;
+  broker: string;
+  filename: string;
+  imported_at: string;
+  inserted_count: number;
+  skipped_count: number;
+}
+
+export interface ImportDeleteResponse {
+  batch_id: number;
+  broker: string;
+  filename: string;
+  fills_deleted: number;
+  trades_rebuilt: number;
+  violations_recorded: number;
+  audited: boolean;
+}
+
 export interface TradeListFilters {
   symbol?: string;
   tag?: string;
@@ -257,5 +276,8 @@ export const api = {
       if (exportTimezone) form.append("export_timezone", exportTimezone);
       return request<ImportResponse>(`/api/imports`, { method: "POST", body: form });
     },
+    list: () => request<ImportBatch[]>(`/api/imports`),
+    delete: (batchId: number) =>
+      request<ImportDeleteResponse>(`/api/imports/${batchId}`, { method: "DELETE" }),
   },
 };

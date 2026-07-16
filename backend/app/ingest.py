@@ -105,6 +105,60 @@ def import_fills(
     )
 
 
+@dataclass(frozen=True)
+class DeleteBatchResult:
+    batch_id: int
+    broker: str
+    filename: str
+    fills_deleted: int
+    trades_rebuilt: int
+    violations_recorded: int = 0
+
+
+def delete_import_batch(
+    session: Session,
+    batch_id: int,
+    rules_config: RulesConfig | None = None,
+) -> DeleteBatchResult | None:
+    """Delete a batch with its fills, then regroup and re-audit what it touched.
+
+    The mirror image of import_fills: trades for every (account, symbol) the
+    batch's fills belonged to are rebuilt from the remaining fills, so a trade
+    fed only by this batch disappears (its violations cascade away) and mixed
+    trades regroup without the deleted fills. Returns None for an unknown id.
+    """
+    batch = session.get(ImportBatch, batch_id)
+    if batch is None:
+        return None
+
+    fills_deleted = len(batch.executions)
+    touched_keys = {(e.account_label, e.symbol) for e in batch.executions}
+    for execution in list(batch.executions):
+        session.delete(execution)
+    session.flush()
+
+    trades_rebuilt = 0
+    for account, symbol in sorted(touched_keys):
+        trades_rebuilt += rebuild_trades(session, account, symbol)
+
+    violations_recorded = 0
+    if rules_config is not None:
+        for account in sorted({account for account, _ in touched_keys}):
+            violations_recorded += audit_account(session, account, rules_config)
+
+    result = DeleteBatchResult(
+        batch_id=batch.id,
+        broker=batch.broker,
+        filename=batch.filename,
+        fills_deleted=fills_deleted,
+        trades_rebuilt=trades_rebuilt,
+        violations_recorded=violations_recorded,
+    )
+    session.delete(batch)
+    session.flush()
+    return result
+
+
 ANNOTATION_FIELDS = ("planned_stop", "planned_target", "setup_tag", "notes", "stop_set_at")
 
 

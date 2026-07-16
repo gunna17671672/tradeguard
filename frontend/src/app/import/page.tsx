@@ -2,8 +2,10 @@
 
 import { useRef, useState } from "react";
 import Link from "next/link";
-import { api, type ImportResponse } from "@/lib/api";
-import { ErrorNote, PageHeader, Panel } from "@/components/ui";
+import { api, type ImportDeleteResponse, type ImportResponse } from "@/lib/api";
+import { useApi } from "@/lib/useApi";
+import { sessionStamp } from "@/lib/format";
+import { Empty, ErrorNote, PageHeader, Panel } from "@/components/ui";
 
 type Broker = "webull" | "generic";
 
@@ -34,12 +36,16 @@ export default function ImportPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<ImportResponse | null>(null);
+  const [deleted, setDeleted] = useState<ImportDeleteResponse | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<number | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
+  const batches = useApi(api.imports.list);
 
   async function send(file: File) {
     setBusy(true);
     setError(null);
     setResult(null);
+    setDeleted(null);
     try {
       const trimmed = mapping.trim();
       setResult(
@@ -50,6 +56,23 @@ export default function ImportPage() {
           broker === "webull" ? timezone : undefined,
         ),
       );
+      batches.reload();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function removeBatch(id: number) {
+    setBusy(true);
+    setError(null);
+    setResult(null);
+    setDeleted(null);
+    setConfirmDelete(null);
+    try {
+      setDeleted(await api.imports.delete(id));
+      batches.reload();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -231,6 +254,83 @@ export default function ImportPage() {
         </div>
       ) : null}
 
+      {deleted ? (
+        <div className="mt-3">
+          <Panel title={`batch #${deleted.batch_id} deleted · ${deleted.filename}`}>
+            <p className="num px-4 py-3 text-[12px] text-ink-2">
+              {deleted.fills_deleted} fill{deleted.fills_deleted === 1 ? "" : "s"} removed ·{" "}
+              {deleted.trades_rebuilt} trade{deleted.trades_rebuilt === 1 ? "" : "s"} regrouped
+              from what remains ·{" "}
+              {deleted.audited
+                ? `${deleted.violations_recorded} violation${
+                    deleted.violations_recorded === 1 ? "" : "s"
+                  } after re-audit`
+                : "not re-audited (no rules.yaml)"}
+            </p>
+          </Panel>
+        </div>
+      ) : null}
+
+      <div className="mt-3">
+        <Panel title="import batches">
+          {batches.error ? (
+            <div className="p-3">
+              <ErrorNote message={batches.error} />
+            </div>
+          ) : !batches.data || batches.data.length === 0 ? (
+            <Empty note={batches.loading ? "loading…" : "no imports yet"} />
+          ) : (
+            <table className="w-full text-[12px]">
+              <tbody>
+                {batches.data.map((batch) => (
+                  <tr key={batch.id} className="border-b border-hairline last:border-b-0">
+                    <td className="num px-4 py-2.5 text-muted">#{batch.id}</td>
+                    <td className="px-2 py-2.5">{batch.filename}</td>
+                    <td className="num px-2 py-2.5 text-ink-2">{batch.broker}</td>
+                    <td className="num px-2 py-2.5 text-muted">
+                      {sessionStamp(batch.imported_at)} ET
+                    </td>
+                    <td className="num px-2 py-2.5 text-ink-2">
+                      {batch.inserted_count} fill{batch.inserted_count === 1 ? "" : "s"}
+                    </td>
+                    <td className="px-4 py-2.5 text-right">
+                      {confirmDelete === batch.id ? (
+                        <>
+                          <button
+                            onClick={() => void removeBatch(batch.id)}
+                            disabled={busy}
+                            className="label text-loss hover:underline disabled:opacity-50"
+                          >
+                            confirm delete
+                          </button>
+                          <button
+                            onClick={() => setConfirmDelete(null)}
+                            className="label ml-4 text-muted hover:underline"
+                          >
+                            keep
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          onClick={() => setConfirmDelete(batch.id)}
+                          disabled={busy}
+                          className="label text-muted hover:text-loss hover:underline disabled:opacity-50"
+                        >
+                          delete
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+          <p className="border-t border-hairline px-4 py-2.5 text-[11px] text-muted">
+            Deleting a batch removes its fills, regroups affected trades, and re-audits — use it
+            to redo an import made with the wrong timezone.
+          </p>
+        </Panel>
+      </div>
     </>
   );
 }
