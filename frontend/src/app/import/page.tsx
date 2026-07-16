@@ -13,9 +13,23 @@ const MAPPING_PLACEHOLDER = `{
   "datetime_format": "%m/%d/%Y %H:%M:%S", "timezone": "America/New_York"
 }`;
 
+// Webull writes timestamps in the exporting device's local timezone, so the
+// right choice is wherever the trader's machine was — not the exchange's zone.
+const TIMEZONES: [string, string][] = [
+  ["America/New_York", "Eastern — ET"],
+  ["America/Chicago", "Central — CT"],
+  ["America/Denver", "Mountain — MT"],
+  ["America/Phoenix", "Arizona — no DST"],
+  ["America/Los_Angeles", "Pacific — PT"],
+  ["America/Anchorage", "Alaska — AKT"],
+  ["Pacific/Honolulu", "Hawaii — HT"],
+  ["UTC", "UTC"],
+];
+
 export default function ImportPage() {
   const [broker, setBroker] = useState<Broker>("webull");
   const [mapping, setMapping] = useState("");
+  const [timezone, setTimezone] = useState("America/New_York");
   const [dragging, setDragging] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -29,7 +43,12 @@ export default function ImportPage() {
     try {
       const trimmed = mapping.trim();
       setResult(
-        await api.imports.create(file, broker, broker === "generic" && trimmed ? trimmed : undefined),
+        await api.imports.create(
+          file,
+          broker,
+          broker === "generic" && trimmed ? trimmed : undefined,
+          broker === "webull" ? timezone : undefined,
+        ),
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -68,7 +87,7 @@ export default function ImportPage() {
         >
           <span className="num text-[40px] leading-none text-baseline">⇣</span>
           <p className="mt-4 text-[14px] text-ink-2">
-            {busy ? "Uploading…" : "Drop a broker CSV here, or click to browse"}
+            {busy ? "Working…" : "Drop a broker CSV here, or click to browse"}
           </p>
           <p className="num mt-2 text-[11px] text-muted">
             parsed as <span className="text-accent">{broker}</span> · fills dedup on content hash
@@ -112,7 +131,27 @@ export default function ImportPage() {
             </div>
           </Panel>
 
-          {broker === "generic" ? (
+          {broker === "webull" ? (
+            <Panel title="export timezone">
+              <div className="p-3">
+                <select
+                  value={timezone}
+                  onChange={(e) => setTimezone(e.target.value)}
+                  className="num w-full border border-hairline bg-panel-2 p-2 text-[12px] text-ink focus:border-accent focus:outline-none"
+                >
+                  {TIMEZONES.map(([zone, label]) => (
+                    <option key={zone} value={zone}>
+                      {zone} · {label}
+                    </option>
+                  ))}
+                </select>
+                <p className="mt-2 text-[11px] leading-relaxed text-muted">
+                  Webull exports use your <em>device&apos;s</em> local time, not Eastern — pick
+                  the timezone the exporting device was in.
+                </p>
+              </div>
+            </Panel>
+          ) : (
             <Panel title="column mapping · optional json">
               <div className="p-3">
                 <textarea
@@ -128,7 +167,7 @@ export default function ImportPage() {
                 </p>
               </div>
             </Panel>
-          ) : null}
+          )}
         </div>
       </div>
 
@@ -191,6 +230,7 @@ export default function ImportPage() {
           </Panel>
         </div>
       ) : null}
+
     </>
   );
 }

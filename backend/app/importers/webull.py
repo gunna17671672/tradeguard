@@ -19,11 +19,11 @@ Webull renders timestamps in two styles, tried in order:
   is resolved from the date)
 - "2026-07-14 14:36:05" — no zone suffix at all
 
-Either way the wall-clock time is in the export's display timezone — Webull
-displays US Eastern, so `WebullImporter(timezone=...)` defaults to
-America/New_York — and is converted to UTC for storage. The fills variant
-carries no fee columns, so fees are 0; the orders variant sums its commission
-and fee columns.
+Either way the wall-clock time is in the timezone of the device that made the
+export — Webull writes device-local times, not Eastern. `WebullImporter(
+timezone=...)` names that zone and defaults to America/New_York (market time);
+times are converted to UTC for storage. The fills variant carries no fee
+columns, so fees are 0; the orders variant sums its commission and fee columns.
 """
 
 from __future__ import annotations
@@ -44,7 +44,8 @@ from app.importers.base import (
     read_csv_rows,
 )
 
-# Webull displays times in US Eastern; used when no timezone override is given.
+# Assumed when no timezone override is given. Webull actually writes the
+# exporting device's local time, so non-Eastern traders must override this.
 WEBULL_DISPLAY_TIMEZONE = "America/New_York"
 
 STATUS_COLUMN = "Status"
@@ -142,12 +143,14 @@ class WebullImporter(BaseImporter):
     broker = "webull"
 
     def __init__(self, timezone: str = WEBULL_DISPLAY_TIMEZONE) -> None:
-        """`timezone`: the IANA zone the export's timestamps are displayed in.
+        """`timezone`: the IANA zone the export's timestamps are written in.
 
-        Webull renders times in US Eastern, hence the America/New_York
-        default. It applies to zone-less timestamps ('2026-07-14 14:36:05')
-        and to the abbreviated-suffix style ('07/01/2026 09:31:05 EDT'),
-        where DST is resolved from the date rather than the suffix.
+        Webull writes the exporting device's local time, so this defaults to
+        America/New_York (market time) but must be overridden for exports
+        made elsewhere. It applies to zone-less timestamps
+        ('2026-07-14 14:36:05') and to the abbreviated-suffix style
+        ('07/01/2026 09:31:05 EDT'), where DST is resolved from the date
+        rather than the suffix.
         """
         self.timezone = ZoneInfo(timezone)
 

@@ -7,6 +7,7 @@ import shutil
 import tempfile
 from pathlib import Path
 from typing import Annotated
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import APIRouter, Form, HTTPException, UploadFile
 
@@ -37,6 +38,18 @@ def _importer_kwargs(broker: str, mapping: str | None) -> dict[str, object]:
     return config
 
 
+def _validated_timezone(export_timezone: str) -> str:
+    try:
+        ZoneInfo(export_timezone)
+    except (ZoneInfoNotFoundError, ValueError) as exc:
+        raise HTTPException(
+            422,
+            detail=f"unknown export_timezone {export_timezone!r}; "
+            "use an IANA name like 'America/New_York'",
+        ) from exc
+    return export_timezone
+
+
 @router.post("", status_code=201)
 def create_import(
     session: SessionDep,
@@ -44,12 +57,27 @@ def create_import(
     file: UploadFile,
     broker: Annotated[str, Form()],
     mapping: Annotated[str | None, Form()] = None,
+    export_timezone: Annotated[str | None, Form()] = None,
 ) -> ImportResponse:
+    """`export_timezone`: IANA zone the export's zone-less timestamps are in.
+
+    Webull writes timestamps in the exporting device's local timezone, so a
+    trader outside Eastern time must pass their device's zone here. Omitted:
+    the importer's own default applies (Webull assumes America/New_York;
+    generic assumes UTC unless the mapping says otherwise).
+    """
     if broker not in available_brokers():
         raise HTTPException(
             422, detail=f"unknown broker {broker!r}; available: {', '.join(available_brokers())}"
         )
     mapping_config = _importer_kwargs(broker, mapping)
+    if export_timezone is not None:
+        if "timezone" in mapping_config:
+            raise HTTPException(
+                422,
+                detail="timezone given twice: drop export_timezone or the mapping's timezone key",
+            )
+        export_timezone = _validated_timezone(export_timezone)
 
     # Importers parse from a path; keep the client's filename so parse errors
     # ("orders.csv: missing expected column ...") name the file the user sent.
@@ -60,6 +88,8 @@ def create_import(
             shutil.copyfileobj(file.file, out)
         try:
             kwargs = mapping_kwargs_from_config(mapping_config) if mapping_config else {}
+            if export_timezone is not None:
+                kwargs["timezone"] = export_timezone
             importer = get_importer(broker, **kwargs)
             fills = importer.parse(target)
         except ImporterError as exc:

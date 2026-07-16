@@ -249,11 +249,12 @@ export const api = {
       }),
   },
   imports: {
-    create: (file: File, broker: string, mapping?: string) => {
+    create: (file: File, broker: string, mapping?: string, exportTimezone?: string) => {
       const form = new FormData();
       form.append("file", file);
       form.append("broker", broker);
       if (mapping) form.append("mapping", mapping);
+      if (exportTimezone) form.append("export_timezone", exportTimezone);
       return request<ImportResponse>(`/api/imports`, { method: "POST", body: form });
     },
   },
