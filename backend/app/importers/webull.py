@@ -1,17 +1,29 @@
 """Webull CSV importer (US stocks).
 
-Supports the two known Webull app export layouts, detected from the header:
+Supports the three known Webull app export layouts, detected from the header:
 
 - "fills" variant: Symbol, Side, Filled, Avg Price, Filled Time
 - "orders" variant (order history): Symbol, Side, Qty, Filled Qty,
   Avg Fill Price, Status, Update Time, commission, fee, ... (plus junk
   columns like a literal 'undefined' header, which are ignored)
+- "paper orders" variant (PAPER account order history): Symbol, Side, Type,
+  Quantity, Limit price, Stop price, Fill price, Status, Commission,
+  Placing time, Closing time, Order ID, Level ID, Leverage, Margin
 
 Rows are orders, not pure fills: only rows whose Status indicates a fill are
 imported, using the filled quantity (a partially filled order has
 Qty > Filled Qty). Skipped unfilled rows are counted on `skipped_unfilled`.
-Any other header fails loudly, listing both expected layouts; the generic
+Any other header fails loudly, listing the expected layouts; the generic
 importer with a custom mapping is the fallback.
+
+Paper-variant choices (from a real paper export): Quantity is the *order*
+quantity — there is no filled-quantity column, so only fully Filled rows
+import and a partially-filled status raises rather than guessing the executed
+size. Closing time is when the order reached its terminal state, i.e. the fill
+time for a filled order (Placing time is submission), so it is executed_at.
+Symbols carry an exchange prefix ("NASDAQ:GSUN"), stripped so paper trades
+group with the same ticker from other exports. Level ID, Leverage, and Margin
+are ignored (kept only in raw_row).
 
 Webull renders timestamps in two styles, tried in order:
 
@@ -58,6 +70,11 @@ class _Variant:
     mapping: ColumnMapping
     fee_columns: tuple[str, ...] = ()
     requires_status: bool = False
+    # Symbols like "NASDAQ:GSUN" (paper export): drop the exchange prefix.
+    strip_exchange_prefix: bool = False
+    # The qty column is the *order* quantity with no filled-qty column beside
+    # it, so a partially filled row has no knowable executed size — raise.
+    rejects_partial_fills: bool = False
 
     def required_columns(self) -> list[str]:
         required = self.mapping.required_columns()
@@ -86,6 +103,20 @@ _VARIANTS: tuple[_Variant, ...] = (
         ),
         fee_columns=("commission", "fee"),
         requires_status=True,
+    ),
+    _Variant(
+        name="paper order-history export",
+        mapping=ColumnMapping(
+            symbol="Symbol",
+            side="Side",
+            qty="Quantity",
+            price="Fill price",
+            executed_at="Closing time",
+        ),
+        fee_columns=("Commission",),
+        requires_status=True,
+        strip_exchange_prefix=True,
+        rejects_partial_fills=True,
     ),
 )
 
@@ -168,14 +199,24 @@ class WebullImporter(BaseImporter):
             if has_status and status not in FILLED_STATUSES:
                 self.skipped_unfilled += 1
                 continue
+            if variant.rejects_partial_fills and status.startswith("partial"):
+                raise ImporterError(
+                    f"row {i}: status {row[STATUS_COLUMN]!r} — this export has no "
+                    "filled-quantity column, so the executed size of a partially "
+                    "filled order is unknown; import it via the regular "
+                    "order-history export instead"
+                )
             qty = parse_decimal(row[mapping.qty], mapping.qty, i)
             if qty == 0:
                 self.skipped_unfilled += 1
                 continue
+            symbol = row[mapping.symbol]
+            if variant.strip_exchange_prefix:
+                symbol = symbol.rsplit(":", 1)[-1]
             fills.append(
                 NormalizedFill(
                     broker=self.broker,
-                    symbol=row[mapping.symbol],
+                    symbol=symbol,
                     side=parse_side(row[mapping.side], i),
                     qty=qty,
                     price=parse_decimal(row[mapping.price], mapping.price, i),

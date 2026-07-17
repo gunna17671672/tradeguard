@@ -1,0 +1,5 @@
+Symbol,Side,Type,Quantity,Limit price,Stop price,Fill price,Status,Commission,Placing time,Closing time,Order ID,Level ID,Leverage,Margin
+NASDAQ:AAPL,Buy,Market,100,,,190.00,Filled,,2026-06-01 09:31:05,2026-06-01 09:31:05,9900000001,,1:1,19000.00 USD
+NASDAQ:AAPL,Sell,Limit,100,191.50,,191.50,Filled,0.55,2026-06-01 09:40:00,2026-06-01 09:45:10,9900000002,,1:1,19150.00 USD
+NYSE:GME,Buy,Limit,50,25.00,,,Cancelled,,2026-06-01 10:00:00,2026-06-01 10:05:00,9900000003,,1:1,1250.00 USD
+NASDAQ:TSLA,Sell,Market,20,,,240.10,Filled,,2026-06-01 10:31:12,2026-06-01 10:31:12,9900000004,,1:1,4802.00 USD

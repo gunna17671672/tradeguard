@@ -44,6 +44,7 @@ class TestWebullImporter:
         assert "Ticker" in msg  # found columns listed
         assert "Avg Price" in msg  # fills variant listed
         assert "Avg Fill Price" in msg  # order-history variant listed
+        assert "Fill price" in msg  # paper order-history variant listed
 
     def test_empty_file_fails_loudly(self, tmp_path: Path):
         empty = tmp_path / "empty.csv"
@@ -113,6 +114,65 @@ class TestWebullOrdersVariant:
         )
         with pytest.raises(ImporterError, match="no filled executions"):
             WebullImporter().parse(unfilled)
+
+
+class TestWebullPaperOrdersVariant:
+    """PAPER-account order-history export: Quantity is the order quantity (no
+    filled-qty column), Fill price / Commission carry the money columns, and
+    Closing time — the order's terminal time — is the execution time."""
+
+    HEADER = (
+        "Symbol,Side,Type,Quantity,Limit price,Stop price,Fill price,Status,"
+        "Commission,Placing time,Closing time,Order ID,Level ID,Leverage,Margin\n"
+    )
+
+    def test_imports_filled_rows_skipping_cancelled(self, fixtures_dir: Path):
+        importer = WebullImporter()
+        fills = importer.parse(fixtures_dir / "webull_paper_orders_sample.csv")
+        assert len(fills) == 3
+        assert importer.skipped_unfilled == 1  # cancelled GME order
+        assert all(f.broker == "webull" for f in fills)
+
+    def test_exchange_prefix_stripped_from_symbols(self, fixtures_dir: Path):
+        fills = WebullImporter().parse(fixtures_dir / "webull_paper_orders_sample.csv")
+        assert [f.symbol for f in fills] == ["AAPL", "AAPL", "TSLA"]
+        # raw_row keeps the export verbatim, prefix and junk columns included
+        assert fills[0].raw_row["Symbol"] == "NASDAQ:AAPL"
+        assert fills[0].raw_row["Leverage"] == "1:1"
+        assert fills[0].raw_row["Margin"] == "19000.00 USD"
+
+    def test_quantity_and_fill_price_are_the_fill(self, fixtures_dir: Path):
+        first = WebullImporter().parse(fixtures_dir / "webull_paper_orders_sample.csv")[0]
+        assert first.side is Side.BUY
+        assert isinstance(first.qty, Decimal) and first.qty == D("100")
+        assert isinstance(first.price, Decimal) and first.price == D("190.00")
+
+    def test_closing_time_not_placing_time_is_executed_at(self, fixtures_dir: Path):
+        fills = WebullImporter().parse(fixtures_dir / "webull_paper_orders_sample.csv")
+        # AAPL sell: placed 09:40:00, closed (filled) 09:45:10 EDT == 13:45:10 UTC
+        assert fills[1].executed_at.astimezone(UTC) == datetime(2026, 6, 1, 13, 45, 10, tzinfo=UTC)
+
+    def test_timezone_override_applies(self, fixtures_dir: Path):
+        first = WebullImporter(timezone="America/Phoenix").parse(
+            fixtures_dir / "webull_paper_orders_sample.csv"
+        )[0]
+        # 09:31:05 Phoenix (UTC-7, no DST) == 16:31:05 UTC
+        assert first.executed_at.astimezone(UTC) == datetime(2026, 6, 1, 16, 31, 5, tzinfo=UTC)
+
+    def test_empty_commission_is_zero_and_present_commission_counts(self, fixtures_dir: Path):
+        fills = WebullImporter().parse(fixtures_dir / "webull_paper_orders_sample.csv")
+        assert fills[0].fees == D("0")  # empty Commission cell
+        assert fills[1].fees == D("0.55")
+
+    def test_partially_filled_row_fails_loudly(self, tmp_path: Path):
+        partial = tmp_path / "partial.csv"
+        partial.write_text(
+            self.HEADER + "NASDAQ:AAPL,Buy,Limit,100,190.00,,190.00,Partially Filled,"
+            ",2026-06-01 09:31:05,2026-06-01 09:45:00,9900000001,,1:1,19000.00 USD\n",
+            encoding="utf-8",
+        )
+        with pytest.raises(ImporterError, match="no.*filled-quantity column"):
+            WebullImporter().parse(partial)
 
 
 class TestWebullTimestampFormats:
