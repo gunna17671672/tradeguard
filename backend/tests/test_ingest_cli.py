@@ -9,14 +9,17 @@ the open AMD trade has 50 shares on and +50 realized from a partial exit.
 from __future__ import annotations
 
 import json
+import shutil
 from decimal import Decimal
 from pathlib import Path
 
+import pytest
 from sqlalchemy import select
 
 from app.cli import main
 from app.db import init_db, make_engine, make_session_factory
 from app.models import Direction, Execution, ImportBatch, Trade, TradeStatus, Violation
+from app.sample import SAMPLE_RELPATH, find_sample_file
 
 D = Decimal
 
@@ -277,6 +280,59 @@ class TestCliGeneric:
         rc = main(["import", str(f), "--broker", "webull", "--mapping", str(m)])
         assert rc == 1
         assert "only supported with --broker generic" in capsys.readouterr().err
+
+
+class TestCliSample:
+    """`sample` finds sample_data/ by walking up from the repo checkout (read-
+    only, so these run against the real repo); the rules file is always given
+    explicitly here to keep the test run from writing into the real repo."""
+
+    EXAMPLE_RULES = Path(__file__).resolve().parents[2] / "rules.example.yaml"
+
+    def test_loads_sample_dataset(self, tmp_path: Path, capsys):
+        db = tmp_path / "t.db"
+        rc = main(["sample", "--db", str(db), "--rules", str(self.EXAMPLE_RULES)])
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert "Sample loaded: 28 trades from 58 fill(s)" in out
+        assert "28 annotated" in out
+        assert "8 rule violation(s) recorded" in out
+
+        with _session_factory(db)() as session:
+            assert len(session.scalars(select(Trade)).all()) == 28
+            assert len(session.scalars(select(Violation)).all()) == 8
+
+    def test_rerun_reports_duplicate_and_keeps_annotations(self, tmp_path: Path, capsys):
+        db = tmp_path / "t.db"
+        argv = ["sample", "--db", str(db), "--rules", str(self.EXAMPLE_RULES)]
+        assert main(argv) == 0
+        capsys.readouterr()
+        assert main(argv) == 0
+        out = capsys.readouterr().out
+        assert "already loaded" in out
+        assert "Sample loaded: 28 trades from 0 fill(s)" in out
+
+    def test_bootstraps_rules_yaml_on_a_fresh_clone(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """No --rules and no live rules.yaml anywhere: `sample` must still
+        audit, by creating rules.yaml from the template itself (the API's
+        create_app does the same on first start; the CLI didn't before)."""
+        real_csv = find_sample_file()
+        assert real_csv is not None
+        (tmp_path / "sample_data").mkdir()
+        shutil.copyfile(real_csv, tmp_path / SAMPLE_RELPATH)
+        shutil.copyfile(self.EXAMPLE_RULES, tmp_path / "rules.example.yaml")
+        monkeypatch.chdir(tmp_path)  # isolated from the real repo's rules.yaml walk
+
+        rc = main(["sample", "--db", str(tmp_path / "t.db")])
+        assert rc == 0
+        assert (tmp_path / "rules.yaml").is_file()
+        assert (tmp_path / "rules.yaml").read_text(
+            encoding="utf-8"
+        ) == self.EXAMPLE_RULES.read_text(encoding="utf-8")
+        with _session_factory(tmp_path / "t.db")() as session:
+            assert len(session.scalars(select(Violation)).all()) == 8
 
 
 class TestCliErrors:

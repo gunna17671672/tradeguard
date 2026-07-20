@@ -2,10 +2,15 @@
 
     python -m app.cli import fills.csv --broker webull
     python -m app.cli import fills.csv --broker generic --mapping mapping.json
+    python -m app.cli sample
 
 A generic-importer mapping.json may contain: symbol, side, qty, price,
 executed_at, fees, account_label (CSV column names), plus optional
 datetime_format (strptime) and timezone (IANA name, default UTC).
+
+`sample` loads the bundled two-week synthetic dataset (sample_data/) with
+stops and tags annotated, so a fresh install has a populated dashboard;
+remove it later by deleting its batch on the Import page.
 
 Imports are audited against rules.yaml automatically: pass --rules, or let the
 CLI discover the file by walking up from the current directory.
@@ -23,7 +28,26 @@ from app.importers import available_brokers, get_importer, mapping_kwargs_from_c
 from app.importers.base import ImporterError
 from app.ingest import import_fills
 from app.rules import RuleConfigError
-from app.rules.loader import RulesConfig, find_rules_file, load_rules_config
+from app.rules.loader import (
+    RulesConfig,
+    bootstrap_rules_file,
+    find_rules_file,
+    load_rules_config,
+)
+from app.sample import SAMPLE_RELPATH, find_sample_file, load_sample
+
+
+def _add_db_and_rules_options(parser: argparse.ArgumentParser) -> None:
+    default_db = default_db_path()
+    parser.add_argument(
+        "--db", type=Path, default=default_db, help=f"SQLite path (default {default_db})"
+    )
+    parser.add_argument(
+        "--rules",
+        type=Path,
+        default=None,
+        help="rules.yaml for the discipline audit (default: nearest rules.yaml above the cwd)",
+    )
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -39,16 +63,12 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="JSON column-mapping file (generic importer only)",
     )
-    default_db = default_db_path()
-    imp.add_argument(
-        "--db", type=Path, default=default_db, help=f"SQLite path (default {default_db})"
+    _add_db_and_rules_options(imp)
+
+    smp = sub.add_parser(
+        "sample", help="Load the bundled two-week sample dataset (annotated + audited)"
     )
-    imp.add_argument(
-        "--rules",
-        type=Path,
-        default=None,
-        help="rules.yaml for the discipline audit (default: nearest rules.yaml above the cwd)",
-    )
+    _add_db_and_rules_options(smp)
     return parser
 
 
@@ -107,10 +127,63 @@ def cmd_import(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_sample(args: argparse.Namespace) -> int:
+    csv_path = find_sample_file()
+    if csv_path is None:
+        print(
+            f"error: {SAMPLE_RELPATH} not found above the current directory "
+            "(run from inside the repo, or fetch the file from it)",
+            file=sys.stderr,
+        )
+        return 2
+    # Unlike `import`, `sample` is meant to work as a true one-command demo on
+    # a from-scratch clone: fall back to creating rules.yaml from the shipped
+    # template so the audit runs even before the API has ever started.
+    rules_path = args.rules if args.rules is not None else find_rules_file()
+    if rules_path is None:
+        rules_path = bootstrap_rules_file()
+        if rules_path is not None:
+            print(f"note: created {rules_path} from the shipped rules.example.yaml")
+    if rules_path is None:
+        print("note: no rules.yaml found; skipping the discipline audit")
+        rules_config = None
+    else:
+        try:
+            rules_config = load_rules_config(rules_path)
+        except RuleConfigError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
+
+    engine = make_engine(args.db)
+    init_db(engine)
+    factory = make_session_factory(engine)
+    with session_scope(factory) as session:
+        result = load_sample(session, csv_path, rules_config)
+
+    audit_note = (
+        f"{result.violations_recorded} rule violation(s) recorded"
+        if rules_config is not None
+        else "audit skipped"
+    )
+    rerun_note = (
+        ""
+        if result.imported.inserted
+        else " (already loaded: every fill was a duplicate; annotations refreshed)"
+    )
+    print(
+        f"Sample loaded: {result.trades} trades from {result.imported.inserted} fill(s), "
+        f"{result.annotated} annotated with stops/tags; {audit_note}.{rerun_note} "
+        "Open the Dashboard to explore; delete the batch on the Import page to remove it."
+    )
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
     if args.command == "import":
         return cmd_import(args)
+    if args.command == "sample":
+        return cmd_sample(args)
     return 2  # pragma: no cover — argparse enforces the subcommand
 
 

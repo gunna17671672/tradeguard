@@ -28,9 +28,11 @@ COPY backend/app ./app
 # site-packages install, so /app holds only the template and the static site.
 RUN pip install --no-cache-dir . && rm -rf ./app ./pyproject.toml
 
-# The rules template (bootstrapped to /data/rules.yaml on first start) and
-# the frontend export.
+# The rules template (bootstrapped to /data/rules.yaml on first start), the
+# bundled sample dataset (`docker exec <container> python -m app.cli sample`),
+# and the frontend export.
 COPY rules.example.yaml ./
+COPY sample_data ./sample_data
 COPY --from=frontend /build/out ./static
 
 ENV TRADEGUARD_DB=/data/tradeguard.db \
