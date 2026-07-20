@@ -1,4 +1,4 @@
-"""App factory wiring: health check, DB path resolution, CORS for the dev frontend."""
+"""App factory wiring: health, DB path resolution, CORS, static frontend serving."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ import logging
 from pathlib import Path
 
 import pytest
+from fastapi.testclient import TestClient
 
 import app.db
 from app.db import default_db_path
@@ -71,3 +72,46 @@ class TestCanonicalDbPath:
         with caplog.at_level(logging.INFO, logger="tradeguard"):
             create_app(db_path=db, rules_path=rules)
         assert str(db.resolve()) in caplog.text
+
+
+class TestStaticFrontend:
+    """In production the built frontend export is served from the same origin
+    as the API (static_dir param or TRADEGUARD_STATIC); dev mode has neither
+    and stays API-only."""
+
+    def _export(self, tmp_path: Path) -> Path:
+        """A minimal stand-in for `next build`'s out/ directory."""
+        static = tmp_path / "out"
+        (static / "import").mkdir(parents=True)
+        (static / "index.html").write_text("<h1>TG-DASH</h1>", encoding="utf-8")
+        (static / "import" / "index.html").write_text("<h1>TG-IMPORT</h1>", encoding="utf-8")
+        return static
+
+    def _client(self, tmp_path: Path, **kwargs: object) -> TestClient:
+        rules = tmp_path / "rules.yaml"
+        rules.write_text(API_TEST_RULES, encoding="utf-8")
+        return TestClient(create_app(db_path=tmp_path / "t.db", rules_path=rules, **kwargs))
+
+    def test_serves_pages_with_api_taking_precedence(self, tmp_path: Path):
+        client = self._client(tmp_path, static_dir=self._export(tmp_path))
+        assert "TG-DASH" in client.get("/").text
+        assert "TG-IMPORT" in client.get("/import/").text
+        # a slash-less page URL redirects into the exported page directory
+        assert "TG-IMPORT" in client.get("/import").text
+        assert client.get("/api/health").json()["status"] == "ok"
+
+    def test_env_var_configures_the_directory(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        monkeypatch.setenv("TRADEGUARD_STATIC", str(self._export(tmp_path)))
+        client = self._client(tmp_path)
+        assert "TG-DASH" in client.get("/").text
+
+    def test_missing_directory_fails_loudly(self, tmp_path: Path):
+        rules = tmp_path / "rules.yaml"
+        rules.write_text(API_TEST_RULES, encoding="utf-8")
+        with pytest.raises(RuntimeError, match="static frontend directory not found"):
+            create_app(db_path=tmp_path / "t.db", rules_path=rules, static_dir=tmp_path / "nope")
+
+    def test_without_static_config_root_is_404(self, api: ApiHarness):
+        assert api.client.get("/").status_code == 404

@@ -7,6 +7,10 @@ TRADEGUARD_RULES (or by walking up from the cwd), and allows the dev frontend
 origin via CORS. The resolved DB path is logged at startup and reported by
 GET /api/health.
 
+In production (the Docker image) TRADEGUARD_STATIC points at the built
+frontend export, which is served from the same origin as the API; in dev the
+Next server on :3000 does that job and no static dir is configured.
+
 The module-level `app` is built lazily (PEP 562) so importing `create_app`
 for tests never touches the default database file.
 """
@@ -20,6 +24,7 @@ from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from app.api import imports, reports, rules, stats, trades, violations
 from app.db import default_db_path, init_db, make_engine, make_session_factory
@@ -40,10 +45,26 @@ def _default_rules_path() -> Path | None:
     return find_rules_file() or bootstrap_rules_file()
 
 
+def _resolve_static_dir(static_dir: Path | str | None) -> Path | None:
+    """The frontend export to serve, or None (dev mode: Next serves itself)."""
+    if static_dir is None:
+        env = os.environ.get("TRADEGUARD_STATIC")
+        if not env:
+            return None
+        static_dir = env
+    resolved = Path(static_dir).resolve()
+    if not resolved.is_dir():
+        # A configured-but-missing frontend is a broken deployment, not a
+        # silently-API-only one.
+        raise RuntimeError(f"static frontend directory not found: {resolved}")
+    return resolved
+
+
 def create_app(
     db_path: Path | str | None = None,
     rules_path: Path | None = None,
     cors_origins: list[str] = DEV_FRONTEND_ORIGINS,
+    static_dir: Path | str | None = None,
 ) -> FastAPI:
     resolved_db = Path(db_path).resolve() if db_path is not None else default_db_path()
     logger.info("SQLite database: %s", resolved_db)
@@ -81,6 +102,13 @@ def create_app(
     app.include_router(stats.router)
     app.include_router(rules.router)
     app.include_router(reports.router)
+
+    # Mounted last so every /api route wins; html=True resolves each exported
+    # page directory (/import/ -> import/index.html).
+    static = _resolve_static_dir(static_dir)
+    if static is not None:
+        logger.info("Serving frontend from: %s", static)
+        app.mount("/", StaticFiles(directory=static, html=True), name="frontend")
     return app
 
 

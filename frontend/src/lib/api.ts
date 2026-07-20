@@ -3,8 +3,10 @@
  *
  * Dev mode: the FastAPI server runs on 127.0.0.1:8000 (uvicorn default) and
  * allows the Next dev origin via CORS. Override with NEXT_PUBLIC_API_URL.
- * Money is always a decimal *string* — never parse it into a float for
- * anything but chart geometry.
+ * The production static export is built with NEXT_PUBLIC_API_URL="" (see
+ * Dockerfile), making every request same-origin relative — FastAPI serves
+ * both the pages and /api. Money is always a decimal *string* — never parse
+ * it into a float for anything but chart geometry.
  */
 
 export const API_URL =

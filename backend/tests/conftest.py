@@ -91,6 +91,12 @@ def fixtures_dir(request: pytest.FixtureRequest):
     return request.path.parent / "fixtures"
 
 
+@pytest.fixture(autouse=True)
+def _no_ambient_static(monkeypatch: pytest.MonkeyPatch) -> None:
+    """create_app() consults TRADEGUARD_STATIC; tests must not inherit it."""
+    monkeypatch.delenv("TRADEGUARD_STATIC", raising=False)
+
+
 # Rules used by the API test app: max_trades_per_day(2) so a third same-day
 # entry is dirty, and max_risk_per_trade (fires only when a stop exists, and
 # 1% of 25k = $250) so PATCHing a stop can add or remove violations.
