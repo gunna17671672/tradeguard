@@ -135,3 +135,24 @@ def bootstrap_rules_file(start: Path | None = None) -> Path | None:
                 shutil.copyfile(example, target)
             return target
     return None
+
+
+def bootstrap_rules_file_at(target: Path, start: Path | None = None) -> bool:
+    """Create `target` from the shipped template when it does not exist yet.
+
+    This is the explicit-path twin of bootstrap_rules_file, for TRADEGUARD_RULES
+    pointing somewhere empty (a fresh Docker volume): the template is found by
+    the same upward walk from `start`/cwd, but copied to `target` instead of
+    alongside itself. Returns True only when the file was created; an existing
+    file is never touched and a missing template is a quiet no-op.
+    """
+    if target.exists():
+        return False
+    origin = (start or Path.cwd()).resolve()
+    for directory in (origin, *origin.parents):
+        example = directory / EXAMPLE_FILENAME
+        if example.is_file():
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(example, target)
+            return True
+    return False

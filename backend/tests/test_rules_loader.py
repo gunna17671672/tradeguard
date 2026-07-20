@@ -10,7 +10,12 @@ import pytest
 from app.models import Severity
 from app.rules.builtin import MaxTradesPerDay
 from app.rules.engine import RuleConfigError, available_rules
-from app.rules.loader import bootstrap_rules_file, find_rules_file, load_rules_config
+from app.rules.loader import (
+    bootstrap_rules_file,
+    bootstrap_rules_file_at,
+    find_rules_file,
+    load_rules_config,
+)
 
 VALID = """
 account:
@@ -154,3 +159,28 @@ class TestBootstrapRulesFile:
     def test_none_when_no_example_anywhere(self, tmp_path: Path):
         # tmp_path's parents hold no rules.example.yaml (pytest tmp roots are isolated)
         assert bootstrap_rules_file(tmp_path) is None
+
+
+class TestBootstrapRulesFileAt:
+    """TRADEGUARD_RULES may point somewhere empty (a fresh Docker volume);
+    the template is copied *to that path*, parent directories included."""
+
+    def test_creates_target_from_template(self, tmp_path: Path):
+        (tmp_path / "rules.example.yaml").write_text(VALID, encoding="utf-8")
+        target = tmp_path / "data" / "rules.yaml"
+        assert bootstrap_rules_file_at(target, start=tmp_path) is True
+        assert load_rules_config(target).enabled_rule_ids() == [
+            "max_trades_per_day",
+            "stop_required",
+        ]
+
+    def test_existing_target_is_never_touched(self, tmp_path: Path):
+        (tmp_path / "rules.example.yaml").write_text(VALID, encoding="utf-8")
+        live = write_yaml(tmp_path, "account:\n  account_size: '1889.94'\nrules: {}\n")
+        assert bootstrap_rules_file_at(live, start=tmp_path) is False
+        assert load_rules_config(live).settings.account_size == Decimal("1889.94")
+
+    def test_quiet_noop_without_a_template(self, tmp_path: Path):
+        target = tmp_path / "data" / "rules.yaml"
+        assert bootstrap_rules_file_at(target, start=tmp_path) is False
+        assert not target.exists()

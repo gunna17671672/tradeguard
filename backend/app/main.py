@@ -29,7 +29,7 @@ from fastapi.staticfiles import StaticFiles
 from app.api import imports, reports, rules, stats, trades, violations
 from app.db import default_db_path, init_db, make_engine, make_session_factory
 from app.rules import RuleConfigError
-from app.rules.loader import bootstrap_rules_file, find_rules_file
+from app.rules.loader import bootstrap_rules_file, bootstrap_rules_file_at, find_rules_file
 from app.schemas import HealthRead
 
 DEV_FRONTEND_ORIGINS = ["http://localhost:3000", "http://127.0.0.1:3000"]
@@ -40,7 +40,12 @@ logger = logging.getLogger("tradeguard")
 def _default_rules_path() -> Path | None:
     env = os.environ.get("TRADEGUARD_RULES")
     if env:
-        return Path(env)
+        path = Path(env)
+        # First start against a fresh volume: seed the live rules file from
+        # the shipped template so audits work out of the box.
+        if bootstrap_rules_file_at(path):
+            logger.info("Created %s from the shipped rules.example.yaml", path)
+        return path
     # First run: no live rules.yaml yet — create it from the shipped template.
     return find_rules_file() or bootstrap_rules_file()
 

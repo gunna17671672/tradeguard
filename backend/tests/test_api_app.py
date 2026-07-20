@@ -74,6 +74,26 @@ class TestCanonicalDbPath:
         assert str(db.resolve()) in caplog.text
 
 
+class TestRulesEnvBootstrap:
+    def test_missing_env_rules_path_is_seeded_from_template(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Docker first start: TRADEGUARD_RULES names a file on a fresh volume;
+        it is created from the discoverable rules.example.yaml template."""
+        (tmp_path / "rules.example.yaml").write_text(API_TEST_RULES, encoding="utf-8")
+        monkeypatch.chdir(tmp_path)
+        target = tmp_path / "data" / "rules.yaml"
+        monkeypatch.setenv("TRADEGUARD_RULES", str(target))
+        app = create_app(db_path=tmp_path / "t.db")
+        assert app.state.rules_path == target
+        assert target.is_file()
+        client = TestClient(app)
+        assert client.get("/api/rules").json()["enabled_rule_ids"] == [
+            "max_trades_per_day",
+            "max_risk_per_trade",
+        ]
+
+
 class TestStaticFrontend:
     """In production the built frontend export is served from the same origin
     as the API (static_dir param or TRADEGUARD_STATIC); dev mode has neither
