@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -31,6 +32,7 @@ from app.rules import RuleConfigError
 from app.rules.loader import (
     RulesConfig,
     bootstrap_rules_file,
+    bootstrap_rules_file_at,
     find_rules_file,
     load_rules_config,
 )
@@ -136,13 +138,24 @@ def cmd_sample(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 2
-    # Unlike `import`, `sample` is meant to work as a true one-command demo on
-    # a from-scratch clone: fall back to creating rules.yaml from the shipped
-    # template so the audit runs even before the API has ever started.
-    rules_path = args.rules if args.rules is not None else find_rules_file()
+    # Unlike `import`, `sample` is meant to work as a true one-command demo —
+    # in Docker (`docker run --rm -v tradeguard_data:/data tradeguard python -m
+    # app.cli sample`) and on a from-scratch clone alike. An explicit --rules
+    # behaves exactly like `import`'s (must already exist); only a path this
+    # command infers itself gets auto-created from the shipped template:
+    # TRADEGUARD_RULES is honored (matching what the server reads, so the
+    # seeded file lands on the persistent volume, not the container's
+    # throwaway filesystem), and discovering nothing at all falls back to the
+    # same repo-relative bootstrap the server uses on first start.
+    rules_path: Path | None = args.rules
     if rules_path is None:
-        rules_path = bootstrap_rules_file()
-        if rules_path is not None:
+        env = os.environ.get("TRADEGUARD_RULES")
+        rules_path = Path(env) if env else find_rules_file()
+        if rules_path is None:
+            rules_path = bootstrap_rules_file()
+            if rules_path is not None:
+                print(f"note: created {rules_path} from the shipped rules.example.yaml")
+        elif not rules_path.exists() and bootstrap_rules_file_at(rules_path):
             print(f"note: created {rules_path} from the shipped rules.example.yaml")
     if rules_path is None:
         print("note: no rules.yaml found; skipping the discipline audit")

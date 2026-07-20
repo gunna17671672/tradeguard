@@ -334,6 +334,44 @@ class TestCliSample:
         with _session_factory(tmp_path / "t.db")() as session:
             assert len(session.scalars(select(Violation)).all()) == 8
 
+    def test_tradeguard_rules_env_bootstraps_onto_that_exact_path(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Docker: TRADEGUARD_RULES=/data/rules.yaml on a fresh volume — the
+        seeded file must land there (matching what the server itself reads),
+        not next to wherever the template happened to be found."""
+        real_csv = find_sample_file()
+        assert real_csv is not None
+        (tmp_path / "sample_data").mkdir()
+        shutil.copyfile(real_csv, tmp_path / SAMPLE_RELPATH)
+        shutil.copyfile(self.EXAMPLE_RULES, tmp_path / "rules.example.yaml")
+        monkeypatch.chdir(tmp_path)
+        target = tmp_path / "data" / "rules.yaml"
+        monkeypatch.setenv("TRADEGUARD_RULES", str(target))
+
+        rc = main(["sample", "--db", str(tmp_path / "t.db")])
+        assert rc == 0
+        assert target.is_file()
+        assert not (tmp_path / "rules.yaml").exists()  # not the cwd-adjacent default
+        with _session_factory(tmp_path / "t.db")() as session:
+            assert len(session.scalars(select(Violation)).all()) == 8
+
+    def test_explicit_missing_rules_path_still_errors_loudly(self, tmp_path: Path, capsys):
+        """An explicit --rules is a promise, same as `import`: a missing file
+        is an error, never silently bootstrapped."""
+        rc = main(
+            [
+                "sample",
+                "--db",
+                str(tmp_path / "t.db"),
+                "--rules",
+                str(tmp_path / "nope.yaml"),
+            ]
+        )
+        assert rc == 1
+        assert "rules file not found" in capsys.readouterr().err
+        assert not (tmp_path / "nope.yaml").exists()
+
 
 class TestCliErrors:
     def test_missing_file(self, tmp_path: Path, capsys):
