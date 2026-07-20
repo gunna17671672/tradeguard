@@ -1,0 +1,26 @@
+# Keep the build context lean — and keep personal data out of it entirely.
+.git
+.github
+docs
+
+# Personal / local data: never in an image, never in the context
+rules.yaml
+*.db
+*.sqlite
+*.sqlite3
+.env
+.env.*
+data
+
+# Python
+backend/.venv
+backend/tests
+backend/.pytest_cache
+backend/.ruff_cache
+**/__pycache__
+
+# Node / Next build outputs (stage 1 rebuilds them)
+frontend/node_modules
+frontend/.next
+frontend/out
+frontend/tsconfig.tsbuildinfo
